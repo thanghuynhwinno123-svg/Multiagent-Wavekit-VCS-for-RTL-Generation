@@ -1,0 +1,1204 @@
+{
+  "meta": {
+    "schema_version": 1,
+    "prompt": "Design a RV32EC_Zmmul CPU",
+    "model": "gpt-5.4",
+    "base_url": "https://ccmaxshop.de5.net/v1",
+    "spec_fingerprint": "43d53d4b4d536489841afd8bce49d59a94d3348d",
+    "faiss_cache_fingerprint": "d9ef3453a5d527f5718fdd3517cc4d595c578fed",
+    "rag_agent_digest": "e4f92e113b655f8ac1884b475b6d09eb6b756392"
+  },
+  "payload": {
+    "summary": "RV32EC_Zmmul 3-stage single-issue in-order MCU CPU with fetch, decode/control, execute/writeback, RV32E register file, CSR/trap handling, load/store interface, multiply support, compressed instruction support, and boot ROM loader assist logic.",
+    "modules": [
+      "rv32ec_zmmul_cpu_top",
+      "fetch_unit",
+      "decode_control_unit",
+      "execute_writeback_unit",
+      "alu32",
+      "branch_jump_unit",
+      "mul_unit",
+      "regfile_rv32e",
+      "csr_trap_controller",
+      "load_store_unit",
+      "immediate_generator",
+      "compressed_decoder",
+      "boot_rom_loader_assist"
+    ],
+    "module_analysis": {
+      "rv32ec_zmmul_cpu_top": {
+        "description": "Top-level integration of the 3-stage RV32EC_Zmmul CPU pipeline. Integrates fetch, decode, execute/writeback, register file, CSR/trap, load/store, multiply, compressed decode, and boot assist logic. Handles pipeline stall/flush, trap redirect, branch/jump redirect, memory handshakes, interrupts, and boot-fail stop behavior.",
+        "ports": {
+          "inputs": [
+            {
+              "name": "clk",
+              "width": 1,
+              "description": "System clock"
+            },
+            {
+              "name": "rst_n",
+              "width": 1,
+              "description": "Active-low reset"
+            },
+            {
+              "name": "irq_ext",
+              "width": 1,
+              "description": "External machine interrupt request"
+            },
+            {
+              "name": "boot_mode_spi",
+              "width": 1,
+              "description": "Select SPI boot assist mode"
+            },
+            {
+              "name": "if_instr_rdata",
+              "width": 32,
+              "description": "Instruction fetch data from instruction memory"
+            },
+            {
+              "name": "if_instr_valid",
+              "width": 1,
+              "description": "Instruction fetch response valid"
+            },
+            {
+              "name": "lsu_rdata",
+              "width": 32,
+              "description": "Load data from data memory"
+            },
+            {
+              "name": "lsu_ready",
+              "width": 1,
+              "description": "Data memory transaction ready/complete"
+            },
+            {
+              "name": "spi_boot_done",
+              "width": 1,
+              "description": "Boot ROM loader completed successfully"
+            },
+            {
+              "name": "spi_boot_fail",
+              "width": 1,
+              "description": "Boot ROM loader failed"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "if_pc_addr",
+              "width": 32,
+              "description": "Instruction fetch PC address"
+            },
+            {
+              "name": "if_req",
+              "width": 1,
+              "description": "Instruction fetch request"
+            },
+            {
+              "name": "lsu_req",
+              "width": 1,
+              "description": "Data memory request"
+            },
+            {
+              "name": "lsu_we",
+              "width": 1,
+              "description": "Data memory write enable"
+            },
+            {
+              "name": "lsu_addr",
+              "width": 32,
+              "description": "Data memory address"
+            },
+            {
+              "name": "lsu_wdata",
+              "width": 32,
+              "description": "Data memory write data"
+            },
+            {
+              "name": "lsu_be",
+              "width": 4,
+              "description": "Data memory byte enables"
+            },
+            {
+              "name": "boot_start",
+              "width": 1,
+              "description": "Start signal for boot ROM loader assist"
+            },
+            {
+              "name": "trap_taken",
+              "width": 1,
+              "description": "Trap taken indication"
+            },
+            {
+              "name": "fail_stop",
+              "width": 1,
+              "description": "Terminal fail-stop state indication"
+            }
+          ]
+        },
+        "inferred_testcases": [
+          "RESET: rst_n=0 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x00000013 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 → if_pc_addr=reset_vector, if_req=1, lsu_req=0, trap_taken=0, fail_stop=0",
+          "BOOT_SUCCESS_PATH: rst_n=1 irq_ext=0 boot_mode_spi=1 if_instr_rdata=0x00000013 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=1 spi_boot_fail=0 → boot_start=1, fail_stop=0, if_req=1",
+          "BOOT_FAIL_STOP: rst_n=1 irq_ext=0 boot_mode_spi=1 if_instr_rdata=0x00000013 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=1 → fail_stop=1, if_req=0, lsu_req=0",
+          "ADD_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x002081B3 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with x1=5 x2=3 → x3=8 committed, trap_taken=0",
+          "SUB_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x402081B3 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with x1=9 x2=4 → x3=5 committed, trap_taken=0",
+          "AND_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x0020F1B3 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with x1=0xF0F0AA55 x2=0x0FF00F0F → x3=0x00F00A05 committed",
+          "OR_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x0020E1B3 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with x1=0xF0F0AA55 x2=0x0FF00F0F → x3=0xFFF0AF5F committed",
+          "XOR_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x0020C1B3 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with x1=0xAAAA5555 x2=0x00FF00FF → x3=0xAA5555AA committed",
+          "SLL_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x002091B3 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with x1=0x00000003 x2=0x00000004 → x3=0x00000030 committed",
+          "SRL_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x0020D1B3 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with x1=0x80000000 x2=0x00000004 → x3=0x08000000 committed",
+          "SRA_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x4020D1B3 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with x1=0x80000000 x2=0x00000004 → x3=0xF8000000 committed",
+          "SLT_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x0020A1B3 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with x1=0xFFFFFFFF x2=0x00000001 → x3=0x00000001 committed",
+          "MUL_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x022081B3 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with x1=7 x2=6 → x3=42 committed after stall, trap_taken=0",
+          "LOAD_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x0000A183 if_instr_valid=1 lsu_rdata=0x12345678 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with x1=0x00001000 → lsu_req=1, lsu_we=0, lsu_addr=0x00001000, x3=0x12345678 committed",
+          "STORE_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x0030A023 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with x1=0x00001000 x3=0xCAFEBABE → lsu_req=1, lsu_we=1, lsu_addr=0x00001000, lsu_wdata=0xCAFEBABE",
+          "LOAD_WAIT_STATE_STALL: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x0000A183 if_instr_valid=1 lsu_rdata=0x11223344 lsu_ready=0 spi_boot_done=0 spi_boot_fail=0 with x1=0x00001000 → lsu_req=1 held, pipeline stalled, no writeback until lsu_ready=1 then x3=0x11223344",
+          "BEQ_TAKEN_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x00208463 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with x1=5 x2=5 current_pc=0x00000100 imm=8 → if_pc_addr redirected to 0x00000108, younger instructions flushed",
+          "BEQ_NOT_TAKEN_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x00208463 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with x1=5 x2=6 current_pc=0x00000100 imm=8 → no redirect, next fetch sequential",
+          "BNE_TAKEN_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x00209463 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with x1=5 x2=6 current_pc=0x00000100 imm=8 → if_pc_addr redirected to 0x00000108",
+          "BLT_TAKEN_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x0020C463 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with x1=0xFFFFFFFF x2=0x00000001 current_pc=0x00000100 imm=8 → if_pc_addr redirected to 0x00000108",
+          "BGE_TAKEN_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x0020D463 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with x1=5 x2=5 current_pc=0x00000100 imm=8 → if_pc_addr redirected to 0x00000108",
+          "JAL_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x008000EF if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 current_pc=0x00000100 → x1=0x00000104 committed, if_pc_addr redirected to 0x00000108",
+          "JALR_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x004080E7 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 current_pc=0x00000100 x1=0x00000200 → x1(link)=0x00000104 committed, if_pc_addr redirected to 0x00000204",
+          "CSR_READ_WRITE_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x300090F3 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 csr[mstatus]=0x00000008 x1=0x00000001 → x1 gets old csr value 0x00000008 and csr updated per CSRRW semantics",
+          "MRET_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x30200073 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 csr[mepc]=0x00000080 → if_pc_addr redirected to 0x00000080, trap_taken=0",
+          "EXTERNAL_INTERRUPT_ENTRY: rst_n=1 irq_ext=1 boot_mode_spi=0 if_instr_rdata=0x00000013 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 csr[mtvec]=0x00000100 → trap_taken=1, if_pc_addr=0x00000100, csr[mcause]=interrupt code, csr[mepc]=current_pc",
+          "ILLEGAL_OPCODE_TRAP: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0xFFFFFFFF if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 csr[mtvec]=0x00000100 → trap_taken=1, if_pc_addr=0x00000100, csr[mcause]=illegal_instruction",
+          "DIV_OPCODE_TRAP: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x0220C1B3 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 csr[mtvec]=0x00000100 → trap_taken=1, if_pc_addr=0x00000100, csr[mcause]=illegal_instruction",
+          "X16_X31_REGISTER_ENCODING_TRAP: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x00280833 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 csr[mtvec]=0x00000100 → trap_taken=1, if_pc_addr=0x00000100, csr[mcause]=illegal_instruction",
+          "COMPRESSED_C_ADD_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x0000908A if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with decoded C.ADD x1,x2 and x1=3 x2=4 → x1=7 committed",
+          "COMPRESSED_C_SUB_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x00008C01 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with decoded C.SUB x8,x9 and x8=9 x9=2 → x8=7 committed",
+          "COMPRESSED_C_XOR_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x00008C21 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with decoded C.XOR x8,x9 and x8=0xAA x9=0x0F → x8=0xA5 committed",
+          "COMPRESSED_C_OR_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x00008C41 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with decoded C.OR x8,x9 and x8=0xA0 x9=0x0F → x8=0xAF committed",
+          "COMPRESSED_C_AND_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x00008C61 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with decoded C.AND x8,x9 and x8=0xAF x9=0x0F → x8=0x0F committed",
+          "COMPRESSED_C_ANDI_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x00008801 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with decoded C.ANDI x8,-1 and x8=0x12345678 → x8=0x12345678 committed",
+          "COMPRESSED_C_SRLI_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x00008001 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with decoded C.SRLI x8,4 and x8=0x80000000 → x8=0x08000000 committed",
+          "COMPRESSED_C_SRAI_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x00008401 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with decoded C.SRAI x8,4 and x8=0x80000000 → x8=0xF8000000 committed",
+          "COMPRESSED_C_MV_PIPELINE_FLOW: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x00008082 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 with decoded C.MV x1,x2 and x2=0x12345678 → x1=0x12345678 committed",
+          "C_EBREAK_TRAP: rst_n=1 irq_ext=0 boot_mode_spi=0 if_instr_rdata=0x00009002 if_instr_valid=1 lsu_rdata=0x00000000 lsu_ready=1 spi_boot_done=0 spi_boot_fail=0 csr[mtvec]=0x00000100 → trap_taken=1, if_pc_addr=0x00000100, csr[mcause]=breakpoint"
+        ]
+      },
+      "fetch_unit": {
+        "description": "Maintains program counter, selects next PC based on trap/MRET/branch/sequential priority, handles 16-bit and 32-bit instruction boundaries, and buffers fetched instruction data with valid/replay support.",
+        "ports": {
+          "inputs": [
+            {
+              "name": "clk",
+              "width": 1,
+              "description": "Clock"
+            },
+            {
+              "name": "rst_n",
+              "width": 1,
+              "description": "Active-low reset"
+            },
+            {
+              "name": "stall_i",
+              "width": 1,
+              "description": "Global stall input"
+            },
+            {
+              "name": "flush_i",
+              "width": 1,
+              "description": "Flush pipeline/fetch buffer"
+            },
+            {
+              "name": "trap_redirect_i",
+              "width": 1,
+              "description": "Trap redirect valid"
+            },
+            {
+              "name": "trap_vector_i",
+              "width": 32,
+              "description": "Trap target PC (mtvec)"
+            },
+            {
+              "name": "mret_i",
+              "width": 1,
+              "description": "Exception return valid"
+            },
+            {
+              "name": "mepc_i",
+              "width": 32,
+              "description": "Return PC from CSR"
+            },
+            {
+              "name": "branch_taken_i",
+              "width": 1,
+              "description": "Taken branch/jump redirect valid"
+            },
+            {
+              "name": "branch_target_i",
+              "width": 32,
+              "description": "Branch/jump target PC"
+            },
+            {
+              "name": "instr_rdata_i",
+              "width": 32,
+              "description": "Fetched instruction data"
+            },
+            {
+              "name": "instr_valid_i",
+              "width": 1,
+              "description": "Instruction fetch response valid"
+            },
+            {
+              "name": "reset_vector_i",
+              "width": 32,
+              "description": "Reset vector PC"
+            },
+            {
+              "name": "curr_is_16b_i",
+              "width": 1,
+              "description": "Current instruction length indicator for sequential advance"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "pc_o",
+              "width": 32,
+              "description": "Current fetch PC"
+            },
+            {
+              "name": "instr_o",
+              "width": 32,
+              "description": "Buffered instruction"
+            },
+            {
+              "name": "instr_valid_o",
+              "width": 1,
+              "description": "Buffered instruction valid"
+            },
+            {
+              "name": "fetch_req_o",
+              "width": 1,
+              "description": "Fetch request"
+            },
+            {
+              "name": "halfword_sel_o",
+              "width": 1,
+              "description": "Halfword alignment selection"
+            }
+          ]
+        },
+        "inferred_testcases": [
+          "RESET_PC_LOAD: rst_n=0 stall_i=0 flush_i=0 trap_redirect_i=0 trap_vector_i=0x00000100 mret_i=0 mepc_i=0x00000080 branch_taken_i=0 branch_target_i=0x00000040 instr_rdata_i=0x00000013 instr_valid_i=1 reset_vector_i=0x00000000 curr_is_16b_i=0 → pc_o=0x00000000, fetch_req_o=1, instr_valid_o=0",
+          "TRAP_REDIRECT_PRIORITY: rst_n=1 stall_i=0 flush_i=0 trap_redirect_i=1 trap_vector_i=0x00000100 mret_i=1 mepc_i=0x00000080 branch_taken_i=1 branch_target_i=0x00000040 instr_rdata_i=0x00000013 instr_valid_i=1 reset_vector_i=0x00000000 curr_is_16b_i=0 → pc_o=0x00000100",
+          "MRET_REDIRECT_PRIORITY: rst_n=1 stall_i=0 flush_i=0 trap_redirect_i=0 trap_vector_i=0x00000100 mret_i=1 mepc_i=0x00000080 branch_taken_i=1 branch_target_i=0x00000040 instr_rdata_i=0x00000013 instr_valid_i=1 reset_vector_i=0x00000000 curr_is_16b_i=0 → pc_o=0x00000080",
+          "BRANCH_REDIRECT_PRIORITY: rst_n=1 stall_i=0 flush_i=0 trap_redirect_i=0 trap_vector_i=0x00000100 mret_i=0 mepc_i=0x00000080 branch_taken_i=1 branch_target_i=0x00000040 instr_rdata_i=0x00000013 instr_valid_i=1 reset_vector_i=0x00000000 curr_is_16b_i=0 → pc_o=0x00000040",
+          "SEQUENTIAL_PC_PLUS_4: rst_n=1 stall_i=0 flush_i=0 trap_redirect_i=0 trap_vector_i=0x00000100 mret_i=0 mepc_i=0x00000080 branch_taken_i=0 branch_target_i=0x00000040 instr_rdata_i=0x00000013 instr_valid_i=1 reset_vector_i=0x00000000 curr_is_16b_i=0 with current_pc=0x00000020 → pc_o=0x00000024",
+          "SEQUENTIAL_PC_PLUS_2: rst_n=1 stall_i=0 flush_i=0 trap_redirect_i=0 trap_vector_i=0x00000100 mret_i=0 mepc_i=0x00000080 branch_taken_i=0 branch_target_i=0x00000040 instr_rdata_i=0x0001 instr_valid_i=1 reset_vector_i=0x00000000 curr_is_16b_i=1 with current_pc=0x00000020 → pc_o=0x00000022",
+          "STALL_HOLD_PC: rst_n=1 stall_i=1 flush_i=0 trap_redirect_i=0 trap_vector_i=0x00000100 mret_i=0 mepc_i=0x00000080 branch_taken_i=0 branch_target_i=0x00000040 instr_rdata_i=0x00000013 instr_valid_i=1 reset_vector_i=0x00000000 curr_is_16b_i=0 with current_pc=0x00000020 → pc_o=0x00000020",
+          "FLUSH_INVALIDATE_BUFFER: rst_n=1 stall_i=0 flush_i=1 trap_redirect_i=0 trap_vector_i=0x00000100 mret_i=0 mepc_i=0x00000080 branch_taken_i=0 branch_target_i=0x00000040 instr_rdata_i=0x00000013 instr_valid_i=1 reset_vector_i=0x00000000 curr_is_16b_i=0 → instr_valid_o=0",
+          "INSTR_BUFFER_CAPTURE: rst_n=1 stall_i=0 flush_i=0 trap_redirect_i=0 trap_vector_i=0x00000100 mret_i=0 mepc_i=0x00000080 branch_taken_i=0 branch_target_i=0x00000040 instr_rdata_i=0x12345678 instr_valid_i=1 reset_vector_i=0x00000000 curr_is_16b_i=0 → instr_o=0x12345678, instr_valid_o=1",
+          "HALFWORD_ALIGNMENT_SELECT: rst_n=1 stall_i=0 flush_i=0 trap_redirect_i=0 trap_vector_i=0x00000100 mret_i=0 mepc_i=0x00000080 branch_taken_i=0 branch_target_i=0x00000040 instr_rdata_i=0x11223344 instr_valid_i=1 reset_vector_i=0x00000000 curr_is_16b_i=1 with current_pc[1]=1 → halfword_sel_o=1"
+        ]
+      },
+      "decode_control_unit": {
+        "description": "Decodes RV32E, compressed C, and Zmmul instructions; classifies instruction type; generates ALU, branch, load/store, CSR, multiply, and trap control signals; detects illegal instructions including divide/remainder and x16..x31 references.",
+        "ports": {
+          "inputs": [
+            {
+              "name": "instr_i",
+              "width": 32,
+              "description": "Instruction word after decompression/normalization"
+            },
+            {
+              "name": "instr_is_16b_i",
+              "width": 1,
+              "description": "Compressed instruction indicator"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "rs1_o",
+              "width": 5,
+              "description": "Source register 1 index"
+            },
+            {
+              "name": "rs2_o",
+              "width": 5,
+              "description": "Source register 2 index"
+            },
+            {
+              "name": "rd_o",
+              "width": 5,
+              "description": "Destination register index"
+            },
+            {
+              "name": "imm_o",
+              "width": 32,
+              "description": "Decoded immediate"
+            },
+            {
+              "name": "alu_op_o",
+              "width": 4,
+              "description": "ALU operation select"
+            },
+            {
+              "name": "is_branch_o",
+              "width": 1,
+              "description": "Instruction is branch"
+            },
+            {
+              "name": "is_jump_o",
+              "width": 1,
+              "description": "Instruction is jump"
+            },
+            {
+              "name": "is_load_o",
+              "width": 1,
+              "description": "Instruction is load"
+            },
+            {
+              "name": "is_store_o",
+              "width": 1,
+              "description": "Instruction is store"
+            },
+            {
+              "name": "is_csr_o",
+              "width": 1,
+              "description": "Instruction is CSR access"
+            },
+            {
+              "name": "is_mul_o",
+              "width": 1,
+              "description": "Instruction is multiply"
+            },
+            {
+              "name": "is_mret_o",
+              "width": 1,
+              "description": "Instruction is MRET"
+            },
+            {
+              "name": "is_ebreak_o",
+              "width": 1,
+              "description": "Instruction is breakpoint"
+            },
+            {
+              "name": "reg_write_o",
+              "width": 1,
+              "description": "Register write enable"
+            },
+            {
+              "name": "illegal_instr_o",
+              "width": 1,
+              "description": "Illegal instruction detect"
+            }
+          ]
+        },
+        "inferred_testcases": [
+          "ADD_DECODE: instr_i=0x002081B3 instr_is_16b_i=0 → rs1_o=1, rs2_o=2, rd_o=3, alu_op_o=ADD, reg_write_o=1, illegal_instr_o=0",
+          "SUB_DECODE: instr_i=0x402081B3 instr_is_16b_i=0 → rs1_o=1, rs2_o=2, rd_o=3, alu_op_o=SUB, reg_write_o=1, illegal_instr_o=0",
+          "AND_DECODE: instr_i=0x0020F1B3 instr_is_16b_i=0 → rs1_o=1, rs2_o=2, rd_o=3, alu_op_o=AND, reg_write_o=1, illegal_instr_o=0",
+          "OR_DECODE: instr_i=0x0020E1B3 instr_is_16b_i=0 → rs1_o=1, rs2_o=2, rd_o=3, alu_op_o=OR, reg_write_o=1, illegal_instr_o=0",
+          "XOR_DECODE: instr_i=0x0020C1B3 instr_is_16b_i=0 → rs1_o=1, rs2_o=2, rd_o=3, alu_op_o=XOR, reg_write_o=1, illegal_instr_o=0",
+          "SLL_DECODE: instr_i=0x002091B3 instr_is_16b_i=0 → rs1_o=1, rs2_o=2, rd_o=3, alu_op_o=SLL, reg_write_o=1, illegal_instr_o=0",
+          "SRL_DECODE: instr_i=0x0020D1B3 instr_is_16b_i=0 → rs1_o=1, rs2_o=2, rd_o=3, alu_op_o=SRL, reg_write_o=1, illegal_instr_o=0",
+          "SRA_DECODE: instr_i=0x4020D1B3 instr_is_16b_i=0 → rs1_o=1, rs2_o=2, rd_o=3, alu_op_o=SRA, reg_write_o=1, illegal_instr_o=0",
+          "SLT_DECODE: instr_i=0x0020A1B3 instr_is_16b_i=0 → rs1_o=1, rs2_o=2, rd_o=3, alu_op_o=SLT, reg_write_o=1, illegal_instr_o=0",
+          "LOAD_DECODE: instr_i=0x0000A183 instr_is_16b_i=0 → rs1_o=1, rd_o=3, imm_o=0x00000000, is_load_o=1, reg_write_o=1, illegal_instr_o=0",
+          "STORE_DECODE: instr_i=0x0030A023 instr_is_16b_i=0 → rs1_o=1, rs2_o=3, imm_o=0x00000000, is_store_o=1, reg_write_o=0, illegal_instr_o=0",
+          "BEQ_DECODE: instr_i=0x00208463 instr_is_16b_i=0 → rs1_o=1, rs2_o=2, imm_o=0x00000008, is_branch_o=1, reg_write_o=0, illegal_instr_o=0",
+          "JAL_DECODE: instr_i=0x008000EF instr_is_16b_i=0 → rd_o=1, imm_o=0x00000008, is_jump_o=1, reg_write_o=1, illegal_instr_o=0",
+          "JALR_DECODE: instr_i=0x004080E7 instr_is_16b_i=0 → rs1_o=1, rd_o=1, imm_o=0x00000004, is_jump_o=1, reg_write_o=1, illegal_instr_o=0",
+          "MUL_DECODE: instr_i=0x022081B3 instr_is_16b_i=0 → rs1_o=1, rs2_o=2, rd_o=3, is_mul_o=1, reg_write_o=1, illegal_instr_o=0",
+          "CSR_DECODE: instr_i=0x300090F3 instr_is_16b_i=0 → rs1_o=1, rd_o=1, is_csr_o=1, reg_write_o=1, illegal_instr_o=0",
+          "MRET_DECODE: instr_i=0x30200073 instr_is_16b_i=0 → is_mret_o=1, reg_write_o=0, illegal_instr_o=0",
+          "EBREAK_DECODE: instr_i=0x00100073 instr_is_16b_i=0 → is_ebreak_o=1, reg_write_o=0, illegal_instr_o=0",
+          "DIV_ILLEGAL_DECODE: instr_i=0x0220C1B3 instr_is_16b_i=0 → illegal_instr_o=1",
+          "X16_REFERENCE_ILLEGAL_DECODE: instr_i=0x00280833 instr_is_16b_i=0 → illegal_instr_o=1",
+          "UNKNOWN_OPCODE_ILLEGAL_DECODE: instr_i=0xFFFFFFFF instr_is_16b_i=0 → illegal_instr_o=1",
+          "COMPRESSED_ADD_DECODE: instr_i=0x00000000 instr_is_16b_i=1 with normalized C.ADD x1,x2 → rs1_o=1, rs2_o=2, rd_o=1, alu_op_o=ADD, reg_write_o=1, illegal_instr_o=0",
+          "COMPRESSED_ANDI_DECODE: instr_i=0x00000000 instr_is_16b_i=1 with normalized C.ANDI x8,-1 → rs1_o=8, rd_o=8, imm_o=0xFFFFFFFF, alu_op_o=AND, reg_write_o=1, illegal_instr_o=0",
+          "COMPRESSED_SRAI_DECODE: instr_i=0x00000000 instr_is_16b_i=1 with normalized C.SRAI x8,4 → rs1_o=8, rd_o=8, imm_o=0x00000004, alu_op_o=SRA, reg_write_o=1, illegal_instr_o=0",
+          "COMPRESSED_EBREAK_DECODE: instr_i=0x00000000 instr_is_16b_i=1 with normalized C.EBREAK → is_ebreak_o=1, illegal_instr_o=0"
+        ]
+      },
+      "execute_writeback_unit": {
+        "description": "Executes ALU, branch/jump, multiply, memory address generation/access control, CSR result selection, trap initiation, and single-point writeback at end of X stage. Generates stall and redirect signaling.",
+        "ports": {
+          "inputs": [
+            {
+              "name": "clk",
+              "width": 1,
+              "description": "Clock"
+            },
+            {
+              "name": "rst_n",
+              "width": 1,
+              "description": "Active-low reset"
+            },
+            {
+              "name": "pc_i",
+              "width": 32,
+              "description": "Instruction PC"
+            },
+            {
+              "name": "rs1_val_i",
+              "width": 32,
+              "description": "Source operand 1"
+            },
+            {
+              "name": "rs2_val_i",
+              "width": 32,
+              "description": "Source operand 2"
+            },
+            {
+              "name": "imm_i",
+              "width": 32,
+              "description": "Immediate operand"
+            },
+            {
+              "name": "alu_op_i",
+              "width": 4,
+              "description": "ALU operation select"
+            },
+            {
+              "name": "is_branch_i",
+              "width": 1,
+              "description": "Branch instruction"
+            },
+            {
+              "name": "is_jump_i",
+              "width": 1,
+              "description": "Jump instruction"
+            },
+            {
+              "name": "is_load_i",
+              "width": 1,
+              "description": "Load instruction"
+            },
+            {
+              "name": "is_store_i",
+              "width": 1,
+              "description": "Store instruction"
+            },
+            {
+              "name": "is_mul_i",
+              "width": 1,
+              "description": "Multiply instruction"
+            },
+            {
+              "name": "is_csr_i",
+              "width": 1,
+              "description": "CSR instruction"
+            },
+            {
+              "name": "csr_rdata_i",
+              "width": 32,
+              "description": "CSR read data"
+            },
+            {
+              "name": "load_rdata_i",
+              "width": 32,
+              "description": "Load data return"
+            },
+            {
+              "name": "load_ready_i",
+              "width": 1,
+              "description": "Load/store response ready"
+            },
+            {
+              "name": "mul_result_i",
+              "width": 32,
+              "description": "Multiplier result"
+            },
+            {
+              "name": "mul_busy_i",
+              "width": 1,
+              "description": "Multiplier busy"
+            },
+            {
+              "name": "rd_i",
+              "width": 5,
+              "description": "Destination register"
+            },
+            {
+              "name": "reg_write_i",
+              "width": 1,
+              "description": "Writeback enable"
+            },
+            {
+              "name": "illegal_instr_i",
+              "width": 1,
+              "description": "Illegal instruction indicator"
+            },
+            {
+              "name": "ebreak_i",
+              "width": 1,
+              "description": "Breakpoint instruction indicator"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "wb_rd_o",
+              "width": 5,
+              "description": "Writeback destination register"
+            },
+            {
+              "name": "wb_data_o",
+              "width": 32,
+              "description": "Writeback data"
+            },
+            {
+              "name": "wb_we_o",
+              "width": 1,
+              "description": "Writeback valid"
+            },
+            {
+              "name": "branch_taken_o",
+              "width": 1,
+              "description": "Taken branch/jump"
+            },
+            {
+              "name": "branch_target_o",
+              "width": 32,
+              "description": "Redirect target"
+            },
+            {
+              "name": "lsu_req_o",
+              "width": 1,
+              "description": "Memory request"
+            },
+            {
+              "name": "lsu_we_o",
+              "width": 1,
+              "description": "Memory write enable"
+            },
+            {
+              "name": "lsu_addr_o",
+              "width": 32,
+              "description": "Memory effective address"
+            },
+            {
+              "name": "lsu_wdata_o",
+              "width": 32,
+              "description": "Store write data"
+            },
+            {
+              "name": "stall_o",
+              "width": 1,
+              "description": "Execute stall"
+            },
+            {
+              "name": "trap_o",
+              "width": 1,
+              "description": "Trap request"
+            },
+            {
+              "name": "trap_cause_o",
+              "width": 32,
+              "description": "Trap cause code"
+            }
+          ]
+        },
+        "inferred_testcases": [
+          "ALU_WRITEBACK_ADD: clk=1 rst_n=1 pc_i=0x00000100 rs1_val_i=5 rs2_val_i=3 imm_i=0 alu_op_i=ADD is_branch_i=0 is_jump_i=0 is_load_i=0 is_store_i=0 is_mul_i=0 is_csr_i=0 csr_rdata_i=0 load_rdata_i=0 load_ready_i=1 mul_result_i=0 mul_busy_i=0 rd_i=3 reg_write_i=1 illegal_instr_i=0 ebreak_i=0 → wb_rd_o=3, wb_data_o=8, wb_we_o=1",
+          "ALU_WRITEBACK_SUB: clk=1 rst_n=1 pc_i=0x00000100 rs1_val_i=9 rs2_val_i=4 imm_i=0 alu_op_i=SUB is_branch_i=0 is_jump_i=0 is_load_i=0 is_store_i=0 is_mul_i=0 is_csr_i=0 csr_rdata_i=0 load_rdata_i=0 load_ready_i=1 mul_result_i=0 mul_busy_i=0 rd_i=3 reg_write_i=1 illegal_instr_i=0 ebreak_i=0 → wb_data_o=5, wb_we_o=1",
+          "LOAD_EFFECTIVE_ADDRESS_AND_WRITEBACK: clk=1 rst_n=1 pc_i=0x00000100 rs1_val_i=0x00001000 rs2_val_i=0 imm_i=0x00000004 alu_op_i=ADD is_branch_i=0 is_jump_i=0 is_load_i=1 is_store_i=0 is_mul_i=0 is_csr_i=0 csr_rdata_i=0 load_rdata_i=0x12345678 load_ready_i=1 mul_result_i=0 mul_busy_i=0 rd_i=3 reg_write_i=1 illegal_instr_i=0 ebreak_i=0 → lsu_req_o=1, lsu_we_o=0, lsu_addr_o=0x00001004, wb_data_o=0x12345678, wb_we_o=1",
+          "STORE_EFFECTIVE_ADDRESS: clk=1 rst_n=1 pc_i=0x00000100 rs1_val_i=0x00001000 rs2_val_i=0xCAFEBABE imm_i=0x00000008 alu_op_i=ADD is_branch_i=0 is_jump_i=0 is_load_i=0 is_store_i=1 is_mul_i=0 is_csr_i=0 csr_rdata_i=0 load_rdata_i=0 load_ready_i=1 mul_result_i=0 mul_busy_i=0 rd_i=0 reg_write_i=0 illegal_instr_i=0 ebreak_i=0 → lsu_req_o=1, lsu_we_o=1, lsu_addr_o=0x00001008, lsu_wdata_o=0xCAFEBABE, wb_we_o=0",
+          "LOAD_WAIT_STALL: clk=1 rst_n=1 pc_i=0x00000100 rs1_val_i=0x00001000 rs2_val_i=0 imm_i=0x00000000 alu_op_i=ADD is_branch_i=0 is_jump_i=0 is_load_i=1 is_store_i=0 is_mul_i=0 is_csr_i=0 csr_rdata_i=0 load_rdata_i=0x12345678 load_ready_i=0 mul_result_i=0 mul_busy_i=0 rd_i=3 reg_write_i=1 illegal_instr_i=0 ebreak_i=0 → stall_o=1, wb_we_o=0",
+          "MUL_WAIT_STALL: clk=1 rst_n=1 pc_i=0x00000100 rs1_val_i=7 rs2_val_i=6 imm_i=0 alu_op_i=ADD is_branch_i=0 is_jump_i=0 is_load_i=0 is_store_i=0 is_mul_i=1 is_csr_i=0 csr_rdata_i=0 load_rdata_i=0 load_ready_i=1 mul_result_i=42 mul_busy_i=1 rd_i=3 reg_write_i=1 illegal_instr_i=0 ebreak_i=0 → stall_o=1, wb_we_o=0",
+          "MUL_WRITEBACK_COMPLETE: clk=1 rst_n=1 pc_i=0x00000100 rs1_val_i=7 rs2_val_i=6 imm_i=0 alu_op_i=ADD is_branch_i=0 is_jump_i=0 is_load_i=0 is_store_i=0 is_mul_i=1 is_csr_i=0 csr_rdata_i=0 load_rdata_i=0 load_ready_i=1 mul_result_i=42 mul_busy_i=0 rd_i=3 reg_write_i=1 illegal_instr_i=0 ebreak_i=0 → wb_rd_o=3, wb_data_o=42, wb_we_o=1",
+          "BEQ_TAKEN_EXECUTE: clk=1 rst_n=1 pc_i=0x00000100 rs1_val_i=5 rs2_val_i=5 imm_i=0x00000008 alu_op_i=SUB is_branch_i=1 is_jump_i=0 is_load_i=0 is_store_i=0 is_mul_i=0 is_csr_i=0 csr_rdata_i=0 load_rdata_i=0 load_ready_i=1 mul_result_i=0 mul_busy_i=0 rd_i=0 reg_write_i=0 illegal_instr_i=0 ebreak_i=0 → branch_taken_o=1, branch_target_o=0x00000108",
+          "BEQ_NOT_TAKEN_EXECUTE: clk=1 rst_n=1 pc_i=0x00000100 rs1_val_i=5 rs2_val_i=6 imm_i=0x00000008 alu_op_i=SUB is_branch_i=1 is_jump_i=0 is_load_i=0 is_store_i=0 is_mul_i=0 is_csr_i=0 csr_rdata_i=0 load_rdata_i=0 load_ready_i=1 mul_result_i=0 mul_busy_i=0 rd_i=0 reg_write_i=0 illegal_instr_i=0 ebreak_i=0 → branch_taken_o=0",
+          "JAL_LINK_AND_REDIRECT: clk=1 rst_n=1 pc_i=0x00000100 rs1_val_i=0 rs2_val_i=0 imm_i=0x00000008 alu_op_i=ADD is_branch_i=0 is_jump_i=1 is_load_i=0 is_store_i=0 is_mul_i=0 is_csr_i=0 csr_rdata_i=0 load_rdata_i=0 load_ready_i=1 mul_result_i=0 mul_busy_i=0 rd_i=1 reg_write_i=1 illegal_instr_i=0 ebreak_i=0 → branch_taken_o=1, branch_target_o=0x00000108, wb_data_o=0x00000104, wb_we_o=1",
+          "JALR_LINK_AND_REDIRECT: clk=1 rst_n=1 pc_i=0x00000100 rs1_val_i=0x00000200 rs2_val_i=0 imm_i=0x00000004 alu_op_i=ADD is_branch_i=0 is_jump_i=1 is_load_i=0 is_store_i=0 is_mul_i=0 is_csr_i=0 csr_rdata_i=0 load_rdata_i=0 load_ready_i=1 mul_result_i=0 mul_busy_i=0 rd_i=1 reg_write_i=1 illegal_instr_i=0 ebreak_i=0 → branch_taken_o=1, branch_target_o=0x00000204, wb_data_o=0x00000104, wb_we_o=1",
+          "CSR_WRITEBACK: clk=1 rst_n=1 pc_i=0x00000100 rs1_val_i=0x00000001 rs2_val_i=0 imm_i=0 alu_op_i=ADD is_branch_i=0 is_jump_i=0 is_load_i=0 is_store_i=0 is_mul_i=0 is_csr_i=1 csr_rdata_i=0x00000008 load_rdata_i=0 load_ready_i=1 mul_result_i=0 mul_busy_i=0 rd_i=1 reg_write_i=1 illegal_instr_i=0 ebreak_i=0 → wb_data_o=0x00000008, wb_we_o=1",
+          "ILLEGAL_INSTR_TRAP: clk=1 rst_n=1 pc_i=0x00000100 rs1_val_i=0 rs2_val_i=0 imm_i=0 alu_op_i=ADD is_branch_i=0 is_jump_i=0 is_load_i=0 is_store_i=0 is_mul_i=0 is_csr_i=0 csr_rdata_i=0 load_rdata_i=0 load_ready_i=1 mul_result_i=0 mul_busy_i=0 rd_i=0 reg_write_i=0 illegal_instr_i=1 ebreak_i=0 → trap_o=1, trap_cause_o=illegal_instruction, wb_we_o=0",
+          "EBREAK_TRAP: clk=1 rst_n=1 pc_i=0x00000100 rs1_val_i=0 rs2_val_i=0 imm_i=0 alu_op_i=ADD is_branch_i=0 is_jump_i=0 is_load_i=0 is_store_i=0 is_mul_i=0 is_csr_i=0 csr_rdata_i=0 load_rdata_i=0 load_ready_i=1 mul_result_i=0 mul_busy_i=0 rd_i=0 reg_write_i=0 illegal_instr_i=0 ebreak_i=1 → trap_o=1, trap_cause_o=breakpoint"
+        ]
+      },
+      "alu32": {
+        "description": "32-bit integer ALU implementing add, subtract, bitwise logical operations, shifts, and signed compare/set-less-than used by execute and branch logic.",
+        "ports": {
+          "inputs": [
+            {
+              "name": "a_i",
+              "width": 32,
+              "description": "Operand A"
+            },
+            {
+              "name": "b_i",
+              "width": 32,
+              "description": "Operand B"
+            },
+            {
+              "name": "op_i",
+              "width": 4,
+              "description": "Operation select"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "result_o",
+              "width": 32,
+              "description": "ALU result"
+            },
+            {
+              "name": "zero_o",
+              "width": 1,
+              "description": "Result zero indicator"
+            },
+            {
+              "name": "lt_o",
+              "width": 1,
+              "description": "Signed less-than indicator"
+            }
+          ]
+        },
+        "inferred_testcases": [
+          "ADD: a_i=0x00000005 b_i=0x00000003 op_i=ADD → result_o=0x00000008, zero_o=0, lt_o=0",
+          "SUB: a_i=0x00000009 b_i=0x00000004 op_i=SUB → result_o=0x00000005, zero_o=0, lt_o=0",
+          "AND: a_i=0xF0F0AA55 b_i=0x0FF00F0F op_i=AND → result_o=0x00F00A05, zero_o=0, lt_o=0",
+          "OR: a_i=0xF0F0AA55 b_i=0x0FF00F0F op_i=OR → result_o=0xFFF0AF5F, zero_o=0, lt_o=0",
+          "XOR: a_i=0xAAAA5555 b_i=0x00FF00FF op_i=XOR → result_o=0xAA5555AA, zero_o=0, lt_o=0",
+          "SLL: a_i=0x00000003 b_i=0x00000004 op_i=SLL → result_o=0x00000030, zero_o=0, lt_o=0",
+          "SRL: a_i=0x80000000 b_i=0x00000004 op_i=SRL → result_o=0x08000000, zero_o=0, lt_o=1",
+          "SRA: a_i=0x80000000 b_i=0x00000004 op_i=SRA → result_o=0xF8000000, zero_o=0, lt_o=1",
+          "SLT_TRUE: a_i=0xFFFFFFFF b_i=0x00000001 op_i=SLT → result_o=0x00000001, zero_o=0, lt_o=1",
+          "SLT_FALSE: a_i=0x00000005 b_i=0x00000001 op_i=SLT → result_o=0x00000000, zero_o=1, lt_o=0",
+          "ZERO_RESULT: a_i=0x00000005 b_i=0x00000005 op_i=SUB → result_o=0x00000000, zero_o=1, lt_o=0"
+        ]
+      },
+      "branch_jump_unit": {
+        "description": "Evaluates branch conditions and computes branch/jump redirect targets for BEQ, BNE, BLT, BGE, JAL, and JALR. Produces taken indication and link value basis.",
+        "ports": {
+          "inputs": [
+            {
+              "name": "pc_i",
+              "width": 32,
+              "description": "Current instruction PC"
+            },
+            {
+              "name": "rs1_i",
+              "width": 32,
+              "description": "Source operand 1"
+            },
+            {
+              "name": "rs2_i",
+              "width": 32,
+              "description": "Source operand 2"
+            },
+            {
+              "name": "imm_i",
+              "width": 32,
+              "description": "Branch/jump immediate"
+            },
+            {
+              "name": "branch_op_i",
+              "width": 3,
+              "description": "Branch/jump operation select"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "taken_o",
+              "width": 1,
+              "description": "Redirect taken"
+            },
+            {
+              "name": "target_o",
+              "width": 32,
+              "description": "Redirect target address"
+            },
+            {
+              "name": "link_addr_o",
+              "width": 32,
+              "description": "Return link address PC+4 or PC+2"
+            }
+          ]
+        },
+        "inferred_testcases": [
+          "BEQ_TAKEN: pc_i=0x00000100 rs1_i=5 rs2_i=5 imm_i=0x00000008 branch_op_i=BEQ → taken_o=1, target_o=0x00000108, link_addr_o=0x00000104",
+          "BEQ_NOT_TAKEN: pc_i=0x00000100 rs1_i=5 rs2_i=6 imm_i=0x00000008 branch_op_i=BEQ → taken_o=0, target_o=0x00000108, link_addr_o=0x00000104",
+          "BNE_TAKEN: pc_i=0x00000100 rs1_i=5 rs2_i=6 imm_i=0x00000008 branch_op_i=BNE → taken_o=1, target_o=0x00000108, link_addr_o=0x00000104",
+          "BNE_NOT_TAKEN: pc_i=0x00000100 rs1_i=7 rs2_i=7 imm_i=0x00000008 branch_op_i=BNE → taken_o=0, target_o=0x00000108, link_addr_o=0x00000104",
+          "BLT_TAKEN: pc_i=0x00000100 rs1_i=0xFFFFFFFF rs2_i=0x00000001 imm_i=0x00000008 branch_op_i=BLT → taken_o=1, target_o=0x00000108, link_addr_o=0x00000104",
+          "BLT_NOT_TAKEN: pc_i=0x00000100 rs1_i=0x00000002 rs2_i=0x00000001 imm_i=0x00000008 branch_op_i=BLT → taken_o=0, target_o=0x00000108, link_addr_o=0x00000104",
+          "BGE_TAKEN_EQUAL: pc_i=0x00000100 rs1_i=5 rs2_i=5 imm_i=0x00000008 branch_op_i=BGE → taken_o=1, target_o=0x00000108, link_addr_o=0x00000104",
+          "BGE_TAKEN_GREATER: pc_i=0x00000100 rs1_i=6 rs2_i=5 imm_i=0x00000008 branch_op_i=BGE → taken_o=1, target_o=0x00000108, link_addr_o=0x00000104",
+          "BGE_NOT_TAKEN: pc_i=0x00000100 rs1_i=0xFFFFFFFF rs2_i=0x00000001 imm_i=0x00000008 branch_op_i=BGE → taken_o=0, target_o=0x00000108, link_addr_o=0x00000104",
+          "JAL: pc_i=0x00000100 rs1_i=0 rs2_i=0 imm_i=0x00000020 branch_op_i=JAL → taken_o=1, target_o=0x00000120, link_addr_o=0x00000104",
+          "JALR: pc_i=0x00000100 rs1_i=0x00000200 rs2_i=0 imm_i=0x00000004 branch_op_i=JALR → taken_o=1, target_o=0x00000204, link_addr_o=0x00000104"
+        ]
+      },
+      "mul_unit": {
+        "description": "Implements RV32 Zmmul multiply operation with configurable multi-cycle behavior. Accepts start handshake, asserts busy while computing, and returns low 32-bit signed integer product.",
+        "ports": {
+          "inputs": [
+            {
+              "name": "clk",
+              "width": 1,
+              "description": "Clock"
+            },
+            {
+              "name": "rst_n",
+              "width": 1,
+              "description": "Active-low reset"
+            },
+            {
+              "name": "start_i",
+              "width": 1,
+              "description": "Start multiply"
+            },
+            {
+              "name": "a_i",
+              "width": 32,
+              "description": "Operand A"
+            },
+            {
+              "name": "b_i",
+              "width": 32,
+              "description": "Operand B"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "result_o",
+              "width": 32,
+              "description": "Multiply result low 32 bits"
+            },
+            {
+              "name": "busy_o",
+              "width": 1,
+              "description": "Multiply in progress"
+            },
+            {
+              "name": "done_o",
+              "width": 1,
+              "description": "Multiply complete pulse/indication"
+            }
+          ]
+        },
+        "inferred_testcases": [
+          "RESET_IDLE: clk=1 rst_n=0 start_i=0 a_i=0x00000000 b_i=0x00000000 → busy_o=0, done_o=0",
+          "MUL_POSITIVE: clk=1 rst_n=1 start_i=1 a_i=0x00000007 b_i=0x00000006 → busy_o=1 during operation, result_o=0x0000002A at completion, done_o=1 at completion",
+          "MUL_ZERO: clk=1 rst_n=1 start_i=1 a_i=0x00000000 b_i=0x12345678 → busy_o=1 during operation, result_o=0x00000000 at completion, done_o=1 at completion",
+          "MUL_NEGATIVE_SIGNED: clk=1 rst_n=1 start_i=1 a_i=0xFFFFFFFF b_i=0x00000002 → busy_o=1 during operation, result_o=0xFFFFFFFE at completion, done_o=1 at completion",
+          "MUL_MININT_BY_ONE: clk=1 rst_n=1 start_i=1 a_i=0x80000000 b_i=0x00000001 → busy_o=1 during operation, result_o=0x80000000 at completion, done_o=1 at completion"
+        ]
+      },
+      "regfile_rv32e": {
+        "description": "16-entry 32-bit integer register file for RV32E. Provides two combinational read ports and one synchronous write port. x0 is hardwired to zero; references are legal only for x0..x15.",
+        "ports": {
+          "inputs": [
+            {
+              "name": "clk",
+              "width": 1,
+              "description": "Clock"
+            },
+            {
+              "name": "rst_n",
+              "width": 1,
+              "description": "Active-low reset"
+            },
+            {
+              "name": "raddr1_i",
+              "width": 4,
+              "description": "Read address port 1"
+            },
+            {
+              "name": "raddr2_i",
+              "width": 4,
+              "description": "Read address port 2"
+            },
+            {
+              "name": "we_i",
+              "width": 1,
+              "description": "Write enable"
+            },
+            {
+              "name": "waddr_i",
+              "width": 4,
+              "description": "Write address"
+            },
+            {
+              "name": "wdata_i",
+              "width": 32,
+              "description": "Write data"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "rdata1_o",
+              "width": 32,
+              "description": "Read data port 1"
+            },
+            {
+              "name": "rdata2_o",
+              "width": 32,
+              "description": "Read data port 2"
+            }
+          ]
+        },
+        "inferred_testcases": [
+          "RESET_X0_ZERO: clk=1 rst_n=0 raddr1_i=0 raddr2_i=0 we_i=0 waddr_i=0 wdata_i=0x00000000 → rdata1_o=0x00000000, rdata2_o=0x00000000",
+          "WRITE_READ_X1: clk=1 rst_n=1 raddr1_i=1 raddr2_i=0 we_i=1 waddr_i=1 wdata_i=0x12345678 → after write, rdata1_o=0x12345678, rdata2_o=0x00000000",
+          "WRITE_READ_X15: clk=1 rst_n=1 raddr1_i=15 raddr2_i=0 we_i=1 waddr_i=15 wdata_i=0xCAFEBABE → after write, rdata1_o=0xCAFEBABE, rdata2_o=0x00000000",
+          "WRITE_X0_IGNORED: clk=1 rst_n=1 raddr1_i=0 raddr2_i=0 we_i=1 waddr_i=0 wdata_i=0xFFFFFFFF → rdata1_o=0x00000000, rdata2_o=0x00000000",
+          "DUAL_READ: clk=1 rst_n=1 raddr1_i=2 raddr2_i=3 we_i=0 waddr_i=0 wdata_i=0x00000000 with x2=0x11111111 x3=0x22222222 → rdata1_o=0x11111111, rdata2_o=0x22222222",
+          "WRITE_ENABLE_LOW_NO_WRITE: clk=1 rst_n=1 raddr1_i=4 raddr2_i=0 we_i=0 waddr_i=4 wdata_i=0x87654321 with x4=0x00000000 → rdata1_o=0x00000000"
+        ]
+      },
+      "csr_trap_controller": {
+        "description": "Implements machine-mode-only CSR state, trap entry, interrupt handling, exception return, and direct mtvec redirect. Updates mepc, mcause, and mstatus-related state for traps and MRET.",
+        "ports": {
+          "inputs": [
+            {
+              "name": "clk",
+              "width": 1,
+              "description": "Clock"
+            },
+            {
+              "name": "rst_n",
+              "width": 1,
+              "description": "Active-low reset"
+            },
+            {
+              "name": "csr_we_i",
+              "width": 1,
+              "description": "CSR write enable"
+            },
+            {
+              "name": "csr_addr_i",
+              "width": 12,
+              "description": "CSR address"
+            },
+            {
+              "name": "csr_wdata_i",
+              "width": 32,
+              "description": "CSR write data"
+            },
+            {
+              "name": "csr_re_i",
+              "width": 1,
+              "description": "CSR read enable"
+            },
+            {
+              "name": "trap_i",
+              "width": 1,
+              "description": "Trap request"
+            },
+            {
+              "name": "trap_cause_i",
+              "width": 32,
+              "description": "Trap cause"
+            },
+            {
+              "name": "trap_pc_i",
+              "width": 32,
+              "description": "PC to save in mepc"
+            },
+            {
+              "name": "irq_ext_i",
+              "width": 1,
+              "description": "External interrupt request"
+            },
+            {
+              "name": "mret_i",
+              "width": 1,
+              "description": "Exception return"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "csr_rdata_o",
+              "width": 32,
+              "description": "CSR read data"
+            },
+            {
+              "name": "trap_taken_o",
+              "width": 1,
+              "description": "Trap/interrupt redirect valid"
+            },
+            {
+              "name": "trap_vector_o",
+              "width": 32,
+              "description": "Trap target mtvec"
+            },
+            {
+              "name": "mepc_o",
+              "width": 32,
+              "description": "Saved exception PC"
+            }
+          ]
+        },
+        "inferred_testcases": [
+          "RESET_CSR_INIT: clk=1 rst_n=0 csr_we_i=0 csr_addr_i=0x300 csr_wdata_i=0x00000000 csr_re_i=0 trap_i=0 trap_cause_i=0x00000000 trap_pc_i=0x00000000 irq_ext_i=0 mret_i=0 → trap_taken_o=0, mepc_o=0x00000000",
+          "CSR_WRITE_MTVEC_READBACK: clk=1 rst_n=1 csr_we_i=1 csr_addr_i=0x305 csr_wdata_i=0x00000100 csr_re_i=1 trap_i=0 trap_cause_i=0x00000000 trap_pc_i=0x00000000 irq_ext_i=0 mret_i=0 → csr_rdata_o=0x00000100",
+          "ILLEGAL_INSTRUCTION_TRAP_ENTRY: clk=1 rst_n=1 csr_we_i=0 csr_addr_i=0x000 csr_wdata_i=0x00000000 csr_re_i=0 trap_i=1 trap_cause_i=0x00000002 trap_pc_i=0x00000084 irq_ext_i=0 mret_i=0 with mtvec=0x00000100 → trap_taken_o=1, trap_vector_o=0x00000100, mepc_o=0x00000084",
+          "BREAKPOINT_TRAP_ENTRY: clk=1 rst_n=1 csr_we_i=0 csr_addr_i=0x000 csr_wdata_i=0x00000000 csr_re_i=0 trap_i=1 trap_cause_i=0x00000003 trap_pc_i=0x00000088 irq_ext_i=0 mret_i=0 with mtvec=0x00000100 → trap_taken_o=1, trap_vector_o=0x00000100, mepc_o=0x00000088",
+          "EXTERNAL_INTERRUPT_ENTRY: clk=1 rst_n=1 csr_we_i=0 csr_addr_i=0x000 csr_wdata_i=0x00000000 csr_re_i=0 trap_i=0 trap_cause_i=0x00000000 trap_pc_i=0x0000008C irq_ext_i=1 mret_i=0 with mtvec=0x00000100 and interrupts enabled → trap_taken_o=1, trap_vector_o=0x00000100, mepc_o=0x0000008C",
+          "MRET_RETURN: clk=1 rst_n=1 csr_we_i=0 csr_addr_i=0x000 csr_wdata_i=0x00000000 csr_re_i=0 trap_i=0 trap_cause_i=0x00000000 trap_pc_i=0x00000000 irq_ext_i=0 mret_i=1 with mepc=0x00000080 → trap_taken_o=0, mepc_o=0x00000080",
+          "CSR_READ_MEPC: clk=1 rst_n=1 csr_we_i=0 csr_addr_i=0x341 csr_wdata_i=0x00000000 csr_re_i=1 trap_i=0 trap_cause_i=0x00000000 trap_pc_i=0x00000000 irq_ext_i=0 mret_i=0 with mepc=0x00000080 → csr_rdata_o=0x00000080"
+        ]
+      },
+      "load_store_unit": {
+        "description": "Computes effective addresses, issues load/store requests, manages variable-latency ready handshake, and returns load data/write strobes to the execute stage. Supports pipeline stalling while response is pending.",
+        "ports": {
+          "inputs": [
+            {
+              "name": "clk",
+              "width": 1,
+              "description": "Clock"
+            },
+            {
+              "name": "rst_n",
+              "width": 1,
+              "description": "Active-low reset"
+            },
+            {
+              "name": "req_i",
+              "width": 1,
+              "description": "LSU request valid"
+            },
+            {
+              "name": "we_i",
+              "width": 1,
+              "description": "Store enable"
+            },
+            {
+              "name": "base_addr_i",
+              "width": 32,
+              "description": "Base address"
+            },
+            {
+              "name": "offset_i",
+              "width": 32,
+              "description": "Address offset"
+            },
+            {
+              "name": "store_data_i",
+              "width": 32,
+              "description": "Store data"
+            },
+            {
+              "name": "mem_rdata_i",
+              "width": 32,
+              "description": "Memory read data"
+            },
+            {
+              "name": "mem_ready_i",
+              "width": 1,
+              "description": "Memory response ready"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "mem_req_o",
+              "width": 1,
+              "description": "Memory request"
+            },
+            {
+              "name": "mem_we_o",
+              "width": 1,
+              "description": "Memory write enable"
+            },
+            {
+              "name": "mem_addr_o",
+              "width": 32,
+              "description": "Memory address"
+            },
+            {
+              "name": "mem_wdata_o",
+              "width": 32,
+              "description": "Memory write data"
+            },
+            {
+              "name": "mem_be_o",
+              "width": 4,
+              "description": "Byte enables"
+            },
+            {
+              "name": "load_data_o",
+              "width": 32,
+              "description": "Returned load data"
+            },
+            {
+              "name": "busy_o",
+              "width": 1,
+              "description": "Request in progress / stall"
+            }
+          ]
+        },
+        "inferred_testcases": [
+          "LOAD_REQUEST_READY: clk=1 rst_n=1 req_i=1 we_i=0 base_addr_i=0x00001000 offset_i=0x00000004 store_data_i=0x00000000 mem_rdata_i=0x12345678 mem_ready_i=1 → mem_req_o=1, mem_we_o=0, mem_addr_o=0x00001004, load_data_o=0x12345678, busy_o=0",
+          "STORE_REQUEST_READY: clk=1 rst_n=1 req_i=1 we_i=1 base_addr_i=0x00001000 offset_i=0x00000008 store_data_i=0xCAFEBABE mem_rdata_i=0x00000000 mem_ready_i=1 → mem_req_o=1, mem_we_o=1, mem_addr_o=0x00001008, mem_wdata_o=0xCAFEBABE, mem_be_o=0xF, busy_o=0",
+          "LOAD_WAIT_STATE: clk=1 rst_n=1 req_i=1 we_i=0 base_addr_i=0x00001000 offset_i=0x00000000 store_data_i=0x00000000 mem_rdata_i=0xDEADBEEF mem_ready_i=0 → mem_req_o=1, mem_we_o=0, mem_addr_o=0x00001000, busy_o=1",
+          "STORE_WAIT_STATE: clk=1 rst_n=1 req_i=1 we_i=1 base_addr_i=0x00001000 offset_i=0x00000000 store_data_i=0xA5A5A5A5 mem_rdata_i=0x00000000 mem_ready_i=0 → mem_req_o=1, mem_we_o=1, mem_addr_o=0x00001000, mem_wdata_o=0xA5A5A5A5, busy_o=1",
+          "NO_REQUEST_IDLE: clk=1 rst_n=1 req_i=0 we_i=0 base_addr_i=0x00000000 offset_i=0x00000000 store_data_i=0x00000000 mem_rdata_i=0x00000000 mem_ready_i=0 → mem_req_o=0, busy_o=0"
+        ]
+      },
+      "immediate_generator": {
+        "description": "Generates sign-extended immediates for all required RV32E and compressed instruction formats including I, S, B, U, J, and compressed immediates/shifts.",
+        "ports": {
+          "inputs": [
+            {
+              "name": "instr_i",
+              "width": 32,
+              "description": "Instruction word"
+            },
+            {
+              "name": "imm_type_i",
+              "width": 3,
+              "description": "Immediate format select"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "imm_o",
+              "width": 32,
+              "description": "Generated immediate"
+            }
+          ]
+        },
+        "inferred_testcases": [
+          "I_TYPE_IMM: instr_i=0x004080E7 imm_type_i=I → imm_o=0x00000004",
+          "I_TYPE_NEG_IMM: instr_i=0xFFF08093 imm_type_i=I → imm_o=0xFFFFFFFF",
+          "S_TYPE_IMM: instr_i=0x0030A423 imm_type_i=S → imm_o=0x00000008",
+          "B_TYPE_IMM: instr_i=0x00208463 imm_type_i=B → imm_o=0x00000008",
+          "U_TYPE_IMM: instr_i=0x123450B7 imm_type_i=U → imm_o=0x12345000",
+          "J_TYPE_IMM: instr_i=0x008000EF imm_type_i=J → imm_o=0x00000008",
+          "COMPRESSED_IMM_SIGNED: instr_i=0x00001000 imm_type_i=C_SIGNED → imm_o=0xFFFFFFFF",
+          "COMPRESSED_SHAMT: instr_i=0x00000010 imm_type_i=C_SHAMT → imm_o=0x00000004"
+        ]
+      },
+      "compressed_decoder": {
+        "description": "Decodes supported 16-bit compressed RV32C instructions in scope and expands them into equivalent internal normalized operations or 32-bit forms. Detects unsupported compressed encodings and C.EBREAK.",
+        "ports": {
+          "inputs": [
+            {
+              "name": "c_instr_i",
+              "width": 16,
+              "description": "Compressed instruction"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "expanded_instr_o",
+              "width": 32,
+              "description": "Equivalent expanded internal instruction"
+            },
+            {
+              "name": "is_compressed_o",
+              "width": 1,
+              "description": "Valid compressed instruction"
+            },
+            {
+              "name": "illegal_o",
+              "width": 1,
+              "description": "Unsupported/illegal compressed encoding"
+            },
+            {
+              "name": "is_ebreak_o",
+              "width": 1,
+              "description": "Compressed breakpoint detect"
+            }
+          ]
+        },
+        "inferred_testcases": [
+          "C_MV_DECODE: c_instr_i=0x808A → expanded_instr_o=equivalent_MV_x1_x2, is_compressed_o=1, illegal_o=0, is_ebreak_o=0",
+          "C_ADD_DECODE: c_instr_i=0x908A → expanded_instr_o=equivalent_ADD_x1_x1_x2, is_compressed_o=1, illegal_o=0, is_ebreak_o=0",
+          "C_ANDI_DECODE: c_instr_i=0x8801 → expanded_instr_o=equivalent_ANDI_x8_x8_-1, is_compressed_o=1, illegal_o=0, is_ebreak_o=0",
+          "C_SRLI_DECODE: c_instr_i=0x8001 → expanded_instr_o=equivalent_SRLI_x8_x8_4, is_compressed_o=1, illegal_o=0, is_ebreak_o=0",
+          "C_SRAI_DECODE: c_instr_i=0x8401 → expanded_instr_o=equivalent_SRAI_x8_x8_4, is_compressed_o=1, illegal_o=0, is_ebreak_o=0",
+          "C_SUB_DECODE: c_instr_i=0x8C01 → expanded_instr_o=equivalent_SUB_x8_x8_x9, is_compressed_o=1, illegal_o=0, is_ebreak_o=0",
+          "C_XOR_DECODE: c_instr_i=0x8C21 → expanded_instr_o=equivalent_XOR_x8_x8_x9, is_compressed_o=1, illegal_o=0, is_ebreak_o=0",
+          "C_OR_DECODE: c_instr_i=0x8C41 → expanded_instr_o=equivalent_OR_x8_x8_x9, is_compressed_o=1, illegal_o=0, is_ebreak_o=0",
+          "C_AND_DECODE: c_instr_i=0x8C61 → expanded_instr_o=equivalent_AND_x8_x8_x9, is_compressed_o=1, illegal_o=0, is_ebreak_o=0",
+          "C_EBREAK_DECODE: c_instr_i=0x9002 → expanded_instr_o=equivalent_EBREAK, is_compressed_o=1, illegal_o=0, is_ebreak_o=1",
+          "ILLEGAL_COMPRESSED_DECODE: c_instr_i=0x0000 → expanded_instr_o=0x00000000, is_compressed_o=0, illegal_o=1, is_ebreak_o=0"
+        ]
+      },
+      "boot_rom_loader_assist": {
+        "description": "Assist logic for SPI-to-IRAM boot mode. Starts image load, checks completion/failure conditions, validates boot header constraints such as magic/version, program size under 16KB, and start address range, and enters fail-stop on boot failure.",
+        "ports": {
+          "inputs": [
+            {
+              "name": "clk",
+              "width": 1,
+              "description": "Clock"
+            },
+            {
+              "name": "rst_n",
+              "width": 1,
+              "description": "Active-low reset"
+            },
+            {
+              "name": "boot_mode_spi_i",
+              "width": 1,
+              "description": "SPI boot mode enable"
+            },
+            {
+              "name": "start_i",
+              "width": 1,
+              "description": "Boot assist start"
+            },
+            {
+              "name": "spi_done_i",
+              "width": 1,
+              "description": "SPI transfer done"
+            },
+            {
+              "name": "spi_error_i",
+              "width": 1,
+              "description": "SPI transfer error/timeout"
+            },
+            {
+              "name": "header_magic_ok_i",
+              "width": 1,
+              "description": "Boot image magic/version valid"
+            },
+            {
+              "name": "program_size_i",
+              "width": 14,
+              "description": "Program size in bytes"
+            },
+            {
+              "name": "start_addr_ok_i",
+              "width": 1,
+              "description": "Start address allowed"
+            },
+            {
+              "name": "validation_ok_i",
+              "width": 1,
+              "description": "Optional image validation pass"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "busy_o",
+              "width": 1,
+              "description": "Boot loader active"
+            },
+            {
+              "name": "boot_done_o",
+              "width": 1,
+              "description": "Boot completed successfully"
+            },
+            {
+              "name": "boot_fail_o",
+              "width": 1,
+              "description": "Boot failed"
+            },
+            {
+              "name": "fail_stop_o",
+              "width": 1,
+              "description": "Fail-stop latched state"
+            }
+          ]
+        },
+        "inferred_testcases": [
+          "RESET_IDLE: clk=1 rst_n=0 boot_mode_spi_i=0 start_i=0 spi_done_i=0 spi_error_i=0 header_magic_ok_i=0 program_size_i=0 start_addr_ok_i=0 validation_ok_i=0 → busy_o=0, boot_done_o=0, boot_fail_o=0, fail_stop_o=0",
+          "SPI_BOOT_SUCCESS: clk=1 rst_n=1 boot_mode_spi_i=1 start_i=1 spi_done_i=1 spi_error_i=0 header_magic_ok_i=1 program_size_i=1024 start_addr_ok_i=1 validation_ok_i=1 → boot_done_o=1, boot_fail_o=0, fail_stop_o=0",
+          "SPI_ERROR_FAIL: clk=1 rst_n=1 boot_mode_spi_i=1 start_i=1 spi_done_i=0 spi_error_i=1 header_magic_ok_i=1 program_size_i=1024 start_addr_ok_i=1 validation_ok_i=1 → boot_done_o=0, boot_fail_o=1, fail_stop_o=1",
+          "HEADER_MAGIC_FAIL: clk=1 rst_n=1 boot_mode_spi_i=1 start_i=1 spi_done_i=1 spi_error_i=0 header_magic_ok_i=0 program_size_i=1024 start_addr_ok_i=1 validation_ok_i=1 → boot_done_o=0, boot_fail_o=1, fail_stop_o=1",
+          "PROGRAM_SIZE_FAIL: clk=1 rst_n=1 boot_mode_spi_i=1 start_i=1 spi_done_i=1 spi_error_i=0 header_magic_ok_i=1 program_size_i=16384 start_addr_ok_i=1 validation_ok_i=1 → boot_done_o=0, boot_fail_o=1, fail_stop_o=1",
+          "START_ADDRESS_FAIL: clk=1 rst_n=1 boot_mode_spi_i=1 start_i=1 spi_done_i=1 spi_error_i=0 header_magic_ok_i=1 program_size_i=1024 start_addr_ok_i=0 validation_ok_i=1 → boot_done_o=0, boot_fail_o=1, fail_stop_o=1",
+          "IMAGE_VALIDATION_FAIL: clk=1 rst_n=1 boot_mode_spi_i=1 start_i=1 spi_done_i=1 spi_error_i=0 header_magic_ok_i=1 program_size_i=1024 start_addr_ok_i=1 validation_ok_i=0 → boot_done_o=0, boot_fail_o=1, fail_stop_o=1"
+        ]
+      }
+    },
+    "raw_context": "RV32EC_Zmmul Microarchitecture (Detailed)\n\n1. Overview\n\nThis document defines a concrete microarchitectural blueprint for implementing the RV32EC_Zmmul core.\n\nTarget characteristics:\n\n3-stage single-issue in-order pipeline\n\nSmall control logic footprint\n\nDeterministic trap/interrupt handling\n\nConfigurable multiply unit implementation\n\nTop-level blocks:\n\nFetch Unit (FU)\n\nDecode/Control Unit (DU)\n\nExecute/Writeback Unit (EX/WB)\n\nInteger Register File (16 x 32)\n\nCSR/Trap Controller\n\nLoad/Store Interface\n\nBoot ROM Loader Assist Logic (for SPI-to-IRAM mode)\n\n2. Pipeline Structure\n\nStages:\n\nF (Fetch)\n\nD (Decode)\n\nX (Execute + memory access + writeback)\n\nPipeline goals:\n\nOne instruction issued per cycle in no-stall path\n\nGlobal stall and flush controls for hazards and traps\n\n3. Fetch Unit\n\n3.1 Responsibilities\n\nMaintain PC and next-PC generation\n\nFetch 16/32-bit instruction stream\n\nHandle compressed instruction boundaries\n\nRedirect fetch on branch/jump/trap\n\n3.2 PC Selection Priority (highest first)\n\nTrap/interrupt redirect (mtvec)\n\nException return (mepc via MRET)\n\nTaken branch/jump target from X\n\nSequential next PC (PC + 2 or PC + 4)\n\n3.3 Instruction Buffering\n\nRV32EC_Zmmul Tiny MCU Core Specification (v0.2-draft)\n\n1. Scope\n\nDefines a Cortex-M0-class microcontroller CPU core based on RISC-V for low-cost, low-power embedded systems.\n\n2. Architecture Overview\n\nCore type: 32-bit in-order MCU CPU\n\nCore ISA: RV32EC_Zmmul\n\nPrivilege levels: M-mode only\n\nPipeline: 3-stage (Fetch, Decode, Execute)\n\nIssue: Single-issue\n\nBranch prediction: Not implemented\n\nMMU/FPU: Not implemented\n\n3. ISA Support\n\nMandatory:\n\nRV32E\n\nC (compressed instructions)\n\nZmmul (multiply-only signed integer multiply subset)\n\nMultiply/Divide behavior:\n\nMultiply instructions supported\n\nDivide/remainder instructions not supported\n\nUnsupported opcode policy:\n\nUnsupported/illegal opcodes shall raise an illegal-instruction trap\n\n4. Interrupt and Exception Model\n\nRISC-V machine-level trap handling\n\nDirect trap mode only: mtvec.MODE=0\n\nVectored mode: Not supported\n\nSingle external interrupt input (no priority/preemption model)\n\nInterrupt entry latency target: 12-20 cycles (implementation dependent)\n\n5. Bus and Memory Interface\n\nInstruction fetch path:\n\nPrimary execution memory is internal IRAM/SRAM\n\nExternal SPI ROM is used as boot image source in SPI boot mode\n\nRV32EC_Zmmul ISA Definition\n\n1. Profile\n\nSupported ISA profile:\n\nRV32E\n\nC\n\nZmmul\n\nExecution/trap policy:\n\nMachine mode only (M-mode)\n\nUnsupported/illegal opcode -> illegal-instruction trap\n\nDivide/remainder instructions are not supported\n\nRegister model:\n\nArchitectural integer registers: x0..x15\n\nAny encoding that names x16..x31 is illegal for this core profile\n\n2. Instruction Encoding Fields\n\n2.1 32-bit Base Formats\n\nR-type: funct7[31:25] | rs2[24:20] | rs1[19:15] | funct3[14:12] | rd[11:7] | opcode[6:0]\n\nI-type: imm[31:20] | rs1[19:15] | funct3[14:12] | rd[11:7] | opcode[6:0]\n\nS-type: imm[11:5][31:25] | rs2[24:20] | rs1[19:15] | funct3[14:12] | imm[4:0][11:7] | opcode[6:0]\n\nB-type: imm[12|10:5][31:25] | rs2[24:20] | rs1[19:15] | funct3[14:12] | imm[4:1|11][11:7] | opcode[6:0]\n\nU-type: imm[31:12] | rd[11:7] | opcode[6:0]\n\nJ-type: imm[20|10:1|11|19:12] | rd[11:7] | opcode[6:0]\n\n2.2 16-bit Compressed Formats\n\nCR: funct4[15:12] | rd/rs1[11:7] | rs2[6:2] | op[1:0]\n\nCI: funct3[15:13] | imm[12] | rd/rs1[11:7] | imm[6:2] | op[1:0]\n\nCSS: funct3[15:13] | imm[12:7] | rs2[6:2] | op[1:0]\n\nCIW: funct3[15:13] | imm[12:5] | rd'[4:2] | op[1:0]\n\nTrap/interrupt redirect (mtvec)\n\nException return (mepc via MRET)\n\nTaken branch/jump target from X\n\nSequential next PC (PC + 2 or PC + 4)\n\n3.3 Instruction Buffering\n\nRecommended minimal prefetch structure:\n\n32-bit fetch register + halfword align control\n\nValid bit and replay support on stalls\n\n4. Decode and Control Unit\n\n4.1 Responsibilities\n\nDecode RV32E, C, Zmmul opcodes\n\nGenerate control signals for EX datapath and writeback\n\nClassify instruction type: ALU, branch/jump, load/store, CSR, multiply, trap-return\n\nDetect illegal instruction patterns\n\n4.2 Immediate Generation\n\nSupport all required immediate forms for RV32E/C instructions in scope\n\nSign-extension performed in decode path\n\n4.3 Register Read\n\nTwo read ports from register file (or equivalent time-multiplexed implementation)\n\nRead in D, consume in X\n\n5. Execute/Writeback Unit\n\n5.1 ALU Subsystem\n\nRequired operations:\n\nAdd/subtract\n\nLogical ops (and/or/xor)\n\nShifts\n\nCompare/set operations\n\nBranch target calculation and condition evaluation\n\n5.2 Branch and Jump Handling\n\nBranch resolution in X\n\nOn taken control transfer, flush younger instructions (F/D) and redirect PC\n\nNo branch prediction\n\n5.3 Multiply Unit (Zmmul)\n\n5.2 Branch and Jump Handling\n\nBranch resolution in X\n\nOn taken control transfer, flush younger instructions (F/D) and redirect PC\n\nNo branch prediction\n\n5.3 Multiply Unit (Zmmul)\n\nConfigurable implementation options:\n\nIterative multiplier (small area, higher latency)\n\nMulti-cycle optimized multiplier (moderate area/performance tradeoff)\n\nControl requirements:\n\nmul_busy handshake to pipeline control\n\nStall front-end while multiply result is pending\n\nCommit writeback when multiply completes\n\n5.4 Divide/Remainder Handling\n\nNo divide/remainder datapath\n\nDecode of unsupported divide/remainder opcodes triggers illegal-instruction exception path\n\n5.5 Writeback\n\nSingle architectural writeback point at end of X\n\nWriteback sources:\n\nALU result\n\nMultiply result\n\nLoad data\n\nCSR read result (if applicable)\n\n6. Load/Store Path\n\n6.1 Responsibilities\n\nEffective address calculation in X\n\nIssue memory transaction for load/store\n\nReturn load data for register writeback\n\n6.2 Memory Wait-State Behavior\n\nVariable-latency memory supported via stall/ready handshake\n\nDuring pending memory response:\n\nX stage holds instruction context\n\nF and D are stalled\n\n6.3 Alignment and Fault Policy\n\nValid magic/version\n\nprogram_size < 16 KB\n\nStart address in allowed execution region\n\nFailure conditions (any -> fail-stop):\n\nSPI transaction timeout/error\n\nHeader malformed\n\nSize/range violation\n\nValidation failure (if enabled)\n\n11. Reset and Initialization Behavior\n\nOn reset deassertion:\n\nPC <- reset vector (Boot ROM)\n\nInteger registers unspecified unless explicitly zeroed by ROM/startup\n\nCSRs initialized to defined reset values\n\nPipeline valid bits cleared\n\nOutstanding memory operations cancelled/invalidated\n\n12. Clocking and Power Intent (Microarchitectural)\n\nClock-gating points may include:\n\nMultiplier when idle\n\nFetch pipeline when globally stalled\n\nOptional CSR/counter blocks when disabled\n\nWFI behavior should quiesce front-end until wake condition\n\n13. Configurable Parameters\n\nRecommended synthesis-time parameters:\n\nMUL_IMPL (ITERATIVE, MCYCLE_OPT)\n\nIRAM_BYTES (default 16384)\n\nDRAM_BYTES (default 8192)\n\nBOOT_ROM_BYTES_MAX (16384)\n\nENABLE_IMAGE_VALIDATION (0/1)\n\nTRAP_ON_MISALIGNED (0/1)\n\n14. Verification Guidance\n\nMinimum verification matrix:\n\nISA compliance subset (RV32E, C, Zmmul)\n\nIllegal instruction trapping (including divide/rem opcodes)\n\nTRAP_ON_MISALIGNED (0/1)\n\n14. Verification Guidance\n\nMinimum verification matrix:\n\nISA compliance subset (RV32E, C, Zmmul)\n\nIllegal instruction trapping (including divide/rem opcodes)\n\nBranch flush correctness under back-to-back control transfers\n\nInterrupt entry/exit correctness (mepc/mcause/mstatus effects)\n\nSPI-to-IRAM boot success/failure paths\n\nFail-stop terminal behavior\n\nMemory wait-state robustness (load/store stalls)\n\nRecommended methods:\n\nDirected tests for boot/trap edge cases\n\nConstrained-random instruction streams with reference model comparison\n\nAssertions for stall/flush mutual exclusion and single-commit invariants\n\n4.4 Register-register ALU (compressed)\n\nInstruction Format Quadrant ( op[1:0] ) Key fields C.MV CR 10 funct4=1000, rd!=x0, rs2!=x0 C.ADD CR 10 funct4=1001, rd/rs1!=x0, rs2!=x0 C.ANDI CB 01 funct3=100, funct2=10, rs1', imm C.SRLI CB 01 funct3=100, funct2=00, rs1', shamt C.SRAI CB 01 funct3=100, funct2=01, rs1', shamt C.SUB CA 01 funct6=100011, funct2=00, rd'/rs1', rs2' C.XOR CA 01 funct6=100011, funct2=01, rd'/rs1', rs2' C.OR CA 01 funct6=100011, funct2=10, rd'/rs1', rs2' C.AND CA 01 funct6=100011, funct2=11, rd'/rs1', rs2'\n\n4.5 Breakpoint\n\nInstruction Format Quadrant ( op[1:0] ) Key fields C.EBREAK CR 10 funct4=1001, rd/rs1=x0, rs2=x0\n\n5. Explicitly Unsupported Instructions\n\nAll divide/remainder instructions: DIV, DIVU, REM, REMU\n\nAny RV32I/RV32E encoding that references x16..x31\n\nAny extension opcode not listed in this file (F/D/A/V/B/...) unless added in a future revision\n\n6. Quick Field Reference\n\nrd: destination register (5-bit encoding; legal values map to x0..x15)\n\nrs1, rs2: source registers\n\nrd', rs1', rs2': compressed compact regs (x8..x15)\n\nimm: sign-extended immediate\n\nuimm: zero-extended immediate\n\nshamt: shift amount\n\ncsr: CSR address field\n\nOptional image validation (policy is SoC/product-defined)\n\nOn boot failure (e.g., SPI read/validation failure), system enters fail-stop state\n\n7. Toolchain\n\nGCC RISC-V support (bare-metal)\n\n8. Design Targets (Non-Normative)\n\nPerformance/area class: Cortex-M0-class\n\nPriorities: low gate count, deterministic behavior, low power\n\n9. Configurability\n\nMultiply microarchitecture choice (e.g., iterative vs optimized multi-cycle)\n\nSoC-defined APB map and memory sizing\n\n10. Open Items\n\nFinal APB memory map and peripheral slot allocation\n\nReset/application vector addresses\n\nBoot mode select mechanism (e.g., strap pin or configuration fuse)\n\nInstruction/data interface timing and handshake details\n\nInstruction-class cycle timing table\n\nSleep/deep-sleep behavior and WFI policy\n\nBoot image validation policy details (if enabled)"
+  }
+}

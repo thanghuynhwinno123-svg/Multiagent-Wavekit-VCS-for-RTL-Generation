@@ -1,0 +1,18 @@
+# TestCase Coverage Report (Iteration 1)
+_Generated: 2026-06-20 17:04:13_
+
+## Overall: ✅ PASS
+
+### `rv32ec_zmmul_cpu_top` — ✅ PASS (100% coverage)
+  - ✅ RESET_FETCH_BOOT_ROM
+  - ✅ SPI_BOOT_START
+  - ✅ SPI_BOOT_SUCCESS_TO_FETCH
+  - ✅ SPI_BOOT_FAIL_STOP
+  - ✅ LOAD_HANDSHAKE
+  - ✅ STORE_HANDSHAKE
+  - ✅ BRANCH_REDIRECT_OBSERVABLE
+  - ✅ ILLEGAL_DIV_TRAP_FLOW
+  - ✅ INTERRUPT_ENTRY_FLOW
+  - ✅ MEMORY_WAIT_STATE_STALL
+  - ✅ MUL_NO_TRAP_FLOW
+  - ✅ MRET_RETURN_FLOW

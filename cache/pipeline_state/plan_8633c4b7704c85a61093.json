@@ -1,0 +1,4731 @@
+{
+  "meta": {
+    "schema_version": 1,
+    "prompt": "Design a RV32EC_Zmmul CPU",
+    "model": "gpt-5.4",
+    "base_url": "https://ccmaxshop.de5.net/v1",
+    "rag_context_digest": "74ed9c57590dfa9eab5aa16638ded423647134ef",
+    "rag_agent_digest": "54463aa679a975871ffba988eba5cb23c40bd35e",
+    "plan_agent_digest": "63a6151da5e3879d6927bd92d68cf8ba8bb11e75"
+  },
+  "payload": {
+    "design_summary": {
+      "name": "RV32EC_Zmmul CPU",
+      "type": "3-stage single-issue in-order MCU CPU",
+      "description": "Machine-mode RV32E+C+Zmmul core with fetch, decode, execute/writeback, CSR/trap, load/store, multiplier, and optional SPI boot assist integrated through an observable top-level wrapper.",
+      "clock_frequency_mhz": 100
+    },
+    "modules": [
+      {
+        "name": "alu32_branch_unit",
+        "description": "Combinational ALU, compare, branch condition, and branch/jump target generator used by the execute stage.",
+        "file": "alu32_branch_unit.sv",
+        "implementation_style": "combinational",
+        "signals": [
+          {
+            "name": "op_a_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Operand A"
+          },
+          {
+            "name": "op_b_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Operand B"
+          },
+          {
+            "name": "pc_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Current PC"
+          },
+          {
+            "name": "imm_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Immediate or branch offset"
+          },
+          {
+            "name": "alu_op_i",
+            "direction": "input",
+            "width": 4,
+            "description": "ALU operation select"
+          },
+          {
+            "name": "branch_op_i",
+            "direction": "input",
+            "width": 3,
+            "description": "Branch/jump operation select"
+          },
+          {
+            "name": "result_o",
+            "direction": "output",
+            "width": 32,
+            "description": "ALU result"
+          },
+          {
+            "name": "branch_taken_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Branch condition result"
+          },
+          {
+            "name": "branch_target_o",
+            "direction": "output",
+            "width": 32,
+            "description": "Computed redirect target"
+          }
+        ],
+        "behavior_contract": {
+          "module_kind": "combinational",
+          "clocked_inputs": [],
+          "reset_behavior": "No reset state. Outputs are pure combinational functions of current inputs.",
+          "state_elements": [],
+          "handshake_protocol": "No handshake. Inputs may change at any time and outputs must settle without requiring a clock edge.",
+          "output_timing": "result_o, branch_taken_o, and branch_target_o respond in the same cycle after combinational settle.",
+          "retention_rules": "No internal retention. Outputs must not depend on prior input history.",
+          "completion_semantics": "Every input combination produces a fully defined ALU result and branch decision/target.",
+          "forbidden_assumptions": [
+            "Do not assume op_b_i is pre-shift-masked beyond standard 5-bit shift use.",
+            "Do not assume branch_op_i is zero when alu_op_i is active; both outputs must remain defined.",
+            "Do not assume signed and unsigned compares are interchangeable."
+          ]
+        }
+      },
+      {
+        "name": "multiplier_unit",
+        "description": "Sequential Zmmul multiply engine with start/busy/done handshake and low-32-bit product result.",
+        "file": "multiplier_unit.sv",
+        "implementation_style": "sequential",
+        "signals": [
+          {
+            "name": "clk",
+            "direction": "input",
+            "width": 1,
+            "description": "Clock"
+          },
+          {
+            "name": "rst_n",
+            "direction": "input",
+            "width": 1,
+            "description": "Active-low reset"
+          },
+          {
+            "name": "start_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Start multiply"
+          },
+          {
+            "name": "op_a_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Multiplicand"
+          },
+          {
+            "name": "op_b_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Multiplier"
+          },
+          {
+            "name": "busy_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Multiply in progress"
+          },
+          {
+            "name": "done_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Completion pulse"
+          },
+          {
+            "name": "result_o",
+            "direction": "output",
+            "width": 32,
+            "description": "Low 32 bits of product"
+          }
+        ],
+        "behavior_contract": {
+          "module_kind": "sequential",
+          "clocked_inputs": [
+            "start_i",
+            "op_a_i",
+            "op_b_i"
+          ],
+          "reset_behavior": "Active-low asynchronous reset clears busy_o, done_o, and result_o to zero and abandons any in-flight multiply.",
+          "state_elements": [
+            "busy state",
+            "latched operands or product pipeline state",
+            "result register",
+            "done pulse register"
+          ],
+          "handshake_protocol": "A multiply starts when start_i is sampled high while the unit is idle. busy_o remains asserted during the operation. done_o pulses for one completion cycle when the low-32-bit product is available on result_o.",
+          "output_timing": "busy_o changes only on clock/reset events. done_o is a one-cycle pulse. result_o becomes valid with done_o and then remains held until the next completed multiply or reset.",
+          "retention_rules": "While busy_o is high, the operation context is retained internally and new start_i assertions are ignored until completion.",
+          "completion_semantics": "The completed operation returns the low 32 bits of op_a_i * op_b_i using two's-complement bit behavior, regardless of signed interpretation of the source operands.",
+          "forbidden_assumptions": [
+            "Do not assume single-cycle multiply latency.",
+            "Do not assume start_i can be accepted while busy_o is high.",
+            "Do not assume done_o remains high after the completion pulse."
+          ]
+        }
+      },
+      {
+        "name": "regfile_16x32",
+        "description": "RV32E integer register file with two read ports, one write port, and hardwired x0.",
+        "file": "regfile_16x32.sv",
+        "implementation_style": "storage",
+        "signals": [
+          {
+            "name": "clk",
+            "direction": "input",
+            "width": 1,
+            "description": "Clock"
+          },
+          {
+            "name": "rst_n",
+            "direction": "input",
+            "width": 1,
+            "description": "Active-low reset"
+          },
+          {
+            "name": "raddr1_i",
+            "direction": "input",
+            "width": 4,
+            "description": "Read address 1"
+          },
+          {
+            "name": "raddr2_i",
+            "direction": "input",
+            "width": 4,
+            "description": "Read address 2"
+          },
+          {
+            "name": "we_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Write enable"
+          },
+          {
+            "name": "waddr_i",
+            "direction": "input",
+            "width": 4,
+            "description": "Write address"
+          },
+          {
+            "name": "wdata_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Write data"
+          },
+          {
+            "name": "rdata1_o",
+            "direction": "output",
+            "width": 32,
+            "description": "Read data 1"
+          },
+          {
+            "name": "rdata2_o",
+            "direction": "output",
+            "width": 32,
+            "description": "Read data 2"
+          }
+        ],
+        "behavior_contract": {
+          "module_kind": "sequential",
+          "clocked_inputs": [
+            "clk",
+            "we_i",
+            "waddr_i",
+            "wdata_i"
+          ],
+          "reset_behavior": "Active-low reset may clear architecturally stored registers to zero if implemented; x0 must read as zero regardless of reset state.",
+          "state_elements": [
+            "16 x 32-bit architectural register array with x0 hardwired to zero"
+          ],
+          "handshake_protocol": "No handshake. Read ports are continuously address-driven. Writes occur on the active clock edge when we_i is high and waddr_i is nonzero.",
+          "output_timing": "rdata1_o and rdata2_o are combinational reads of current architectural state. New written data is observable after the write edge.",
+          "retention_rules": "Registers x1-x15 retain values until overwritten or reset. Writes to x0 are ignored.",
+          "completion_semantics": "A valid write updates exactly one architectural register per enabled write cycle.",
+          "forbidden_assumptions": [
+            "Do not assume writes to x0 take effect.",
+            "Do not assume unspecified power-up values for x1-x15 unless reset was applied.",
+            "Do not assume dual-write capability."
+          ]
+        }
+      },
+      {
+        "name": "decode_control_unit",
+        "description": "Instruction decoder for RV32E, C, CSR/system, load/store, branch/jump, and Zmmul with illegal-instruction detection.",
+        "file": "decode_control_unit.sv",
+        "implementation_style": "combinational",
+        "signals": [
+          {
+            "name": "instr_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Instruction word"
+          },
+          {
+            "name": "pc_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Instruction PC"
+          },
+          {
+            "name": "rs1_idx_o",
+            "direction": "output",
+            "width": 5,
+            "description": "Source register 1 index"
+          },
+          {
+            "name": "rs2_idx_o",
+            "direction": "output",
+            "width": 5,
+            "description": "Source register 2 index"
+          },
+          {
+            "name": "rd_idx_o",
+            "direction": "output",
+            "width": 5,
+            "description": "Destination register index"
+          },
+          {
+            "name": "imm_o",
+            "direction": "output",
+            "width": 32,
+            "description": "Decoded immediate"
+          },
+          {
+            "name": "alu_op_o",
+            "direction": "output",
+            "width": 4,
+            "description": "ALU operation select"
+          },
+          {
+            "name": "branch_op_o",
+            "direction": "output",
+            "width": 3,
+            "description": "Branch/jump operation select"
+          },
+          {
+            "name": "mul_en_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Multiply enable"
+          },
+          {
+            "name": "mem_req_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Memory request"
+          },
+          {
+            "name": "mem_we_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Store enable"
+          },
+          {
+            "name": "csr_en_o",
+            "direction": "output",
+            "width": 1,
+            "description": "CSR access enable"
+          },
+          {
+            "name": "mret_o",
+            "direction": "output",
+            "width": 1,
+            "description": "MRET indicator"
+          },
+          {
+            "name": "ebreak_o",
+            "direction": "output",
+            "width": 1,
+            "description": "EBREAK indicator"
+          },
+          {
+            "name": "illegal_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Illegal instruction indicator"
+          },
+          {
+            "name": "is_compressed_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Compressed instruction marker"
+          },
+          {
+            "name": "wb_en_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Register writeback enable"
+          }
+        ],
+        "behavior_contract": {
+          "module_kind": "combinational",
+          "clocked_inputs": [],
+          "reset_behavior": "No reset state. Decode outputs are pure combinational functions of instr_i and pc_i.",
+          "state_elements": [],
+          "handshake_protocol": "No handshake. An instruction word presented at instr_i is decoded immediately after settle.",
+          "output_timing": "All decode fields respond in the same cycle after combinational settle.",
+          "retention_rules": "No retained history. Outputs must not depend on previous instructions.",
+          "completion_semantics": "For any legal RV32E/C/Zmmul instruction in scope, outputs identify source/destination registers, immediate, class controls, and writeback intent. Unsupported divide/remainder and any x16-x31 references must assert illegal_o.",
+          "forbidden_assumptions": [
+            "Do not assume all inputs are 32-bit base ISA instructions; compressed forms must be recognized from instr_i[1:0].",
+            "Do not assume register encodings above x15 are legal.",
+            "Do not assume CSR/system instructions always write back.",
+            "Do not assume illegal instructions still produce useful execution enables."
+          ]
+        }
+      },
+      {
+        "name": "fetch_unit",
+        "description": "PC control and instruction buffering block with redirect priority for trap, MRET, branch/jump, and sequential flow.",
+        "file": "fetch_unit.sv",
+        "implementation_style": "pipeline",
+        "signals": [
+          {
+            "name": "clk",
+            "direction": "input",
+            "width": 1,
+            "description": "Clock"
+          },
+          {
+            "name": "rst_n",
+            "direction": "input",
+            "width": 1,
+            "description": "Active-low reset"
+          },
+          {
+            "name": "stall_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Hold fetch state"
+          },
+          {
+            "name": "flush_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Invalidate buffered instruction"
+          },
+          {
+            "name": "trap_redirect_valid_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Trap redirect request"
+          },
+          {
+            "name": "trap_redirect_pc_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Trap vector address"
+          },
+          {
+            "name": "mret_redirect_valid_i",
+            "direction": "input",
+            "width": 1,
+            "description": "MRET redirect request"
+          },
+          {
+            "name": "mret_redirect_pc_i",
+            "direction": "input",
+            "width": 32,
+            "description": "MRET return address"
+          },
+          {
+            "name": "branch_redirect_valid_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Branch/jump redirect request"
+          },
+          {
+            "name": "branch_redirect_pc_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Branch/jump redirect address"
+          },
+          {
+            "name": "instr_ready_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Instruction fetch response valid"
+          },
+          {
+            "name": "instr_rdata_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Fetched instruction data"
+          },
+          {
+            "name": "is_compressed_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Current instruction length hint"
+          },
+          {
+            "name": "reset_vector_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Reset PC"
+          },
+          {
+            "name": "instr_req_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Fetch request"
+          },
+          {
+            "name": "instr_addr_o",
+            "direction": "output",
+            "width": 32,
+            "description": "Fetch address"
+          },
+          {
+            "name": "pc_o",
+            "direction": "output",
+            "width": 32,
+            "description": "Current instruction PC"
+          },
+          {
+            "name": "instr_valid_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Buffered instruction valid"
+          },
+          {
+            "name": "instr_o",
+            "direction": "output",
+            "width": 32,
+            "description": "Buffered instruction word"
+          }
+        ],
+        "behavior_contract": {
+          "module_kind": "sequential",
+          "clocked_inputs": [
+            "clk",
+            "stall_i",
+            "flush_i",
+            "trap_redirect_valid_i",
+            "trap_redirect_pc_i",
+            "mret_redirect_valid_i",
+            "mret_redirect_pc_i",
+            "branch_redirect_valid_i",
+            "branch_redirect_pc_i",
+            "instr_ready_i",
+            "instr_rdata_i",
+            "is_compressed_i",
+            "reset_vector_i"
+          ],
+          "reset_behavior": "Active-low asynchronous reset clears buffered instruction valid state and loads the current fetch PC from reset_vector_i.",
+          "state_elements": [
+            "current PC register",
+            "buffered instruction register",
+            "buffer valid bit"
+          ],
+          "handshake_protocol": "instr_req_o is the level request for the current fetch address. When instr_ready_i is observed, the corresponding instr_rdata_i is captured into the instruction buffer unless a flush/redirect overrides it. Redirect priority is trap, then MRET, then branch/jump, then sequential progression.",
+          "output_timing": "instr_addr_o and pc_o reflect the held or redirected fetch PC. instr_valid_o asserts once a fetched instruction has been captured and remains asserted until consumed or flushed.",
+          "retention_rules": "When stall_i is high, the PC and buffered instruction state are held. flush_i clears buffered validity. During redirects, stale buffered instructions are invalidated.",
+          "completion_semantics": "Sequential PC increments by 2 when is_compressed_i is high for the retiring instruction, otherwise by 4.",
+          "forbidden_assumptions": [
+            "Do not assume zero-wait instruction memory.",
+            "Do not assume branch redirect has priority over trap or MRET.",
+            "Do not assume buffered data remains valid across flush_i.",
+            "Do not require proof of hidden regfile contents, hidden ALU result buses, or hidden CSR state at top level unless exposed by a port.",
+            "Treat datapath-class top-level tests as observable integration flows unless the final value is visible at the top interface."
+          ],
+          "integration_scope": "observable_top_level_only"
+        }
+      },
+      {
+        "name": "csr_trap_controller",
+        "description": "Machine-mode CSR bank and trap/interrupt redirect controller supporting direct traps and MRET return.",
+        "file": "csr_trap_controller.sv",
+        "implementation_style": "controller",
+        "signals": [
+          {
+            "name": "clk",
+            "direction": "input",
+            "width": 1,
+            "description": "Clock"
+          },
+          {
+            "name": "rst_n",
+            "direction": "input",
+            "width": 1,
+            "description": "Active-low reset"
+          },
+          {
+            "name": "csr_en_i",
+            "direction": "input",
+            "width": 1,
+            "description": "CSR access enable"
+          },
+          {
+            "name": "csr_we_i",
+            "direction": "input",
+            "width": 1,
+            "description": "CSR write enable"
+          },
+          {
+            "name": "csr_addr_i",
+            "direction": "input",
+            "width": 12,
+            "description": "CSR address"
+          },
+          {
+            "name": "csr_wdata_i",
+            "direction": "input",
+            "width": 32,
+            "description": "CSR write data"
+          },
+          {
+            "name": "trap_req_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Synchronous trap request"
+          },
+          {
+            "name": "trap_cause_i",
+            "direction": "input",
+            "width": 4,
+            "description": "Trap cause"
+          },
+          {
+            "name": "trap_pc_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Faulting PC"
+          },
+          {
+            "name": "ext_irq_i",
+            "direction": "input",
+            "width": 1,
+            "description": "External interrupt"
+          },
+          {
+            "name": "mret_i",
+            "direction": "input",
+            "width": 1,
+            "description": "MRET execution"
+          },
+          {
+            "name": "csr_rdata_o",
+            "direction": "output",
+            "width": 32,
+            "description": "CSR read data"
+          },
+          {
+            "name": "trap_redirect_valid_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Redirect to mtvec"
+          },
+          {
+            "name": "trap_redirect_pc_o",
+            "direction": "output",
+            "width": 32,
+            "description": "Trap vector address"
+          },
+          {
+            "name": "mret_redirect_valid_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Redirect to mepc"
+          },
+          {
+            "name": "mret_redirect_pc_o",
+            "direction": "output",
+            "width": 32,
+            "description": "Return PC from mepc"
+          }
+        ],
+        "behavior_contract": {
+          "module_kind": "sequential",
+          "clocked_inputs": [
+            "clk",
+            "csr_en_i",
+            "csr_we_i",
+            "csr_addr_i",
+            "csr_wdata_i",
+            "trap_req_i",
+            "trap_cause_i",
+            "trap_pc_i",
+            "ext_irq_i",
+            "mret_i"
+          ],
+          "reset_behavior": "Active-low asynchronous reset initializes implemented machine CSRs to defined reset values, clears redirect pulses, and clears stored trap context except any architecturally defined reset default such as mtvec if hardwired.",
+          "state_elements": [
+            "mtvec",
+            "mepc",
+            "mcause",
+            "mstatus or reduced interrupt-enable state",
+            "CSR read mux state if registered",
+            "trap redirect pulse state",
+            "mret redirect pulse state"
+          ],
+          "handshake_protocol": "CSR accesses occur when csr_en_i is high; writes additionally require csr_we_i. trap_req_i requests synchronous exception entry. ext_irq_i requests asynchronous machine external interrupt entry when not masked. mret_i requests return from trap. Redirect outputs are observable control pulses or one-cycle valids associated with the selected target PC.",
+          "output_timing": "csr_rdata_o reflects the addressed CSR after settle or after the relevant clock edge if reads are registered. Redirect valids are asserted in the cycle of accepted trap or MRET handling.",
+          "retention_rules": "Trap context CSRs retain their values until overwritten by a later trap, MRET side effects, CSR write, or reset.",
+          "completion_semantics": "Trap entry captures trap_pc_i into mepc and cause into mcause, then redirects to mtvec. MRET redirects to mepc. Direct mode only is supported.",
+          "forbidden_assumptions": [
+            "Do not assume vectored mtvec support.",
+            "Do not assume nested interrupt preemption.",
+            "Do not assume undefined CSR addresses return architecturally meaningful values.",
+            "Do not assume ext_irq_i is level-sensitive beyond implementation-defined single entry acceptance."
+          ]
+        }
+      },
+      {
+        "name": "load_store_unit",
+        "description": "Address generation and variable-latency data memory interface with byte-enable formatting and aligned load return path.",
+        "file": "load_store_unit.sv",
+        "implementation_style": "controller",
+        "signals": [
+          {
+            "name": "clk",
+            "direction": "input",
+            "width": 1,
+            "description": "Clock"
+          },
+          {
+            "name": "rst_n",
+            "direction": "input",
+            "width": 1,
+            "description": "Active-low reset"
+          },
+          {
+            "name": "req_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Memory request"
+          },
+          {
+            "name": "we_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Store enable"
+          },
+          {
+            "name": "size_i",
+            "direction": "input",
+            "width": 2,
+            "description": "Transfer size"
+          },
+          {
+            "name": "unsigned_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Unsigned load select"
+          },
+          {
+            "name": "base_addr_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Base address"
+          },
+          {
+            "name": "offset_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Offset"
+          },
+          {
+            "name": "store_data_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Store source data"
+          },
+          {
+            "name": "mem_ready_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Bus completion"
+          },
+          {
+            "name": "mem_rdata_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Bus read data"
+          },
+          {
+            "name": "trap_on_misaligned_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Misalignment trap policy"
+          },
+          {
+            "name": "mem_req_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Bus request"
+          },
+          {
+            "name": "mem_we_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Bus write enable"
+          },
+          {
+            "name": "mem_be_o",
+            "direction": "output",
+            "width": 4,
+            "description": "Bus byte enables"
+          },
+          {
+            "name": "mem_addr_o",
+            "direction": "output",
+            "width": 32,
+            "description": "Effective address"
+          },
+          {
+            "name": "mem_wdata_o",
+            "direction": "output",
+            "width": 32,
+            "description": "Formatted store data"
+          },
+          {
+            "name": "load_data_o",
+            "direction": "output",
+            "width": 32,
+            "description": "Aligned load result"
+          },
+          {
+            "name": "done_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Transaction complete"
+          },
+          {
+            "name": "stall_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Pipeline stall request"
+          },
+          {
+            "name": "misaligned_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Misaligned access indicator"
+          }
+        ],
+        "behavior_contract": {
+          "module_kind": "sequential",
+          "clocked_inputs": [
+            "clk",
+            "req_i",
+            "we_i",
+            "size_i",
+            "unsigned_i",
+            "base_addr_i",
+            "offset_i",
+            "store_data_i",
+            "mem_ready_i",
+            "mem_rdata_i",
+            "trap_on_misaligned_i"
+          ],
+          "reset_behavior": "Active-low asynchronous reset clears outstanding transaction state, done_o, stall_o, load_data_o, and misaligned_o.",
+          "state_elements": [
+            "outstanding request state",
+            "latched effective address and access attributes",
+            "completion pulse or done state",
+            "aligned load return register if registered"
+          ],
+          "handshake_protocol": "A transaction begins when req_i is high. mem_req_o remains asserted while the request is outstanding unless blocked by misalignment trap policy. Completion occurs when mem_ready_i is observed for a bus-issued request, or immediately when a misaligned trap is flagged with trapping enabled.",
+          "output_timing": "Address, write-enable, byte enables, and store data reflect the current request. done_o asserts on completion. stall_o is high while a request is outstanding and not yet complete. load_data_o is valid on completed load operations.",
+          "retention_rules": "During memory wait states, the request context is retained and outputs hold stable until mem_ready_i or reset. misaligned_o is asserted for the active misaligned request outcome.",
+          "completion_semantics": "Load extraction and sign/zero extension are determined by size_i, unsigned_i, and address low bits. If trap_on_misaligned_i is high and alignment is violated, no bus request is issued and completion is immediate with misaligned_o asserted.",
+          "forbidden_assumptions": [
+            "Do not assume single-cycle memory response.",
+            "Do not assume word alignment for all accesses.",
+            "Do not assume stores produce load_data_o.",
+            "Do not assume misaligned accesses are always trapped."
+          ]
+        }
+      },
+      {
+        "name": "boot_rom_loader",
+        "description": "SPI boot assist FSM that validates header, copies image words into IRAM, returns boot PC, and enters fail-stop on terminal boot error.",
+        "file": "boot_rom_loader.sv",
+        "implementation_style": "fsm",
+        "signals": [
+          {
+            "name": "clk",
+            "direction": "input",
+            "width": 1,
+            "description": "Clock"
+          },
+          {
+            "name": "rst_n",
+            "direction": "input",
+            "width": 1,
+            "description": "Active-low reset"
+          },
+          {
+            "name": "start_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Start boot sequence"
+          },
+          {
+            "name": "spi_ready_i",
+            "direction": "input",
+            "width": 1,
+            "description": "SPI read/data valid"
+          },
+          {
+            "name": "spi_rdata_i",
+            "direction": "input",
+            "width": 32,
+            "description": "SPI read data"
+          },
+          {
+            "name": "iram_ready_i",
+            "direction": "input",
+            "width": 1,
+            "description": "IRAM write accept"
+          },
+          {
+            "name": "validation_enable_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Image validation enable"
+          },
+          {
+            "name": "spi_req_o",
+            "direction": "output",
+            "width": 1,
+            "description": "SPI read request"
+          },
+          {
+            "name": "spi_addr_o",
+            "direction": "output",
+            "width": 32,
+            "description": "SPI source address"
+          },
+          {
+            "name": "iram_we_o",
+            "direction": "output",
+            "width": 1,
+            "description": "IRAM write enable"
+          },
+          {
+            "name": "iram_addr_o",
+            "direction": "output",
+            "width": 32,
+            "description": "IRAM destination address"
+          },
+          {
+            "name": "iram_wdata_o",
+            "direction": "output",
+            "width": 32,
+            "description": "IRAM write data"
+          },
+          {
+            "name": "done_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Boot success"
+          },
+          {
+            "name": "boot_pc_o",
+            "direction": "output",
+            "width": 32,
+            "description": "Entry PC"
+          },
+          {
+            "name": "fail_stop_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Terminal boot failure"
+          }
+        ],
+        "behavior_contract": {
+          "module_kind": "sequential",
+          "clocked_inputs": [
+            "clk",
+            "start_i",
+            "spi_ready_i",
+            "spi_rdata_i",
+            "iram_ready_i",
+            "validation_enable_i"
+          ],
+          "reset_behavior": "Active-low asynchronous reset returns the boot FSM to idle, clears done_o and fail_stop_o, clears boot_pc_o, and drops outstanding SPI/IRAM controls.",
+          "state_elements": [
+            "boot FSM state",
+            "SPI source address counter",
+            "IRAM destination address counter",
+            "header/metadata registers",
+            "program size/count registers",
+            "boot_pc register",
+            "terminal fail-stop latch"
+          ],
+          "handshake_protocol": "start_i launches boot when idle. spi_req_o requests a SPI read for spi_addr_o. spi_ready_i qualifies returned spi_rdata_i. IRAM writes are issued with iram_we_o and are accepted when iram_ready_i is high. done_o indicates successful boot completion. fail_stop_o is terminal once asserted.",
+          "output_timing": "Control outputs change on clock edges according to FSM state. done_o may pulse or hold in the completed state; fail_stop_o holds once entered.",
+          "retention_rules": "Boot progress state is retained across cycles until success, fail-stop, or reset. After fail_stop_o asserts, the module remains in terminal failure state until reset.",
+          "completion_semantics": "Successful completion produces boot_pc_o from the image metadata or terminal word as defined by the boot protocol. Invalid header, range violation, validation failure, or timeout/error cause fail-stop and suppress done_o.",
+          "forbidden_assumptions": [
+            "Do not assume all SPI words are immediately available.",
+            "Do not assume IRAM always accepts writes without backpressure.",
+            "Do not assume validation is disabled.",
+            "Do not assume fail-stop can self-clear without reset."
+          ]
+        }
+      },
+      {
+        "name": "execute_writeback_unit",
+        "description": "Execute-stage controller that arbitrates ALU, multiply, load/store completion, CSR path, branch redirects, traps, and final writeback.",
+        "file": "execute_writeback_unit.sv",
+        "implementation_style": "pipeline",
+        "signals": [
+          {
+            "name": "clk",
+            "direction": "input",
+            "width": 1,
+            "description": "Clock"
+          },
+          {
+            "name": "rst_n",
+            "direction": "input",
+            "width": 1,
+            "description": "Active-low reset"
+          },
+          {
+            "name": "pc_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Instruction PC"
+          },
+          {
+            "name": "rs1_data_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Operand 1"
+          },
+          {
+            "name": "rs2_data_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Operand 2"
+          },
+          {
+            "name": "imm_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Immediate"
+          },
+          {
+            "name": "rd_idx_i",
+            "direction": "input",
+            "width": 5,
+            "description": "Destination register index"
+          },
+          {
+            "name": "alu_op_i",
+            "direction": "input",
+            "width": 4,
+            "description": "ALU operation"
+          },
+          {
+            "name": "branch_op_i",
+            "direction": "input",
+            "width": 3,
+            "description": "Branch/jump operation"
+          },
+          {
+            "name": "mul_en_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Multiply instruction"
+          },
+          {
+            "name": "mem_req_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Memory operation"
+          },
+          {
+            "name": "mem_we_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Store operation"
+          },
+          {
+            "name": "csr_en_i",
+            "direction": "input",
+            "width": 1,
+            "description": "CSR operation"
+          },
+          {
+            "name": "mret_i",
+            "direction": "input",
+            "width": 1,
+            "description": "MRET operation"
+          },
+          {
+            "name": "illegal_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Illegal instruction"
+          },
+          {
+            "name": "load_data_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Returned load data"
+          },
+          {
+            "name": "load_ready_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Load/store completion"
+          },
+          {
+            "name": "mul_result_i",
+            "direction": "input",
+            "width": 32,
+            "description": "Multiplier result"
+          },
+          {
+            "name": "mul_done_i",
+            "direction": "input",
+            "width": 1,
+            "description": "Multiplier completion"
+          },
+          {
+            "name": "csr_rdata_i",
+            "direction": "input",
+            "width": 32,
+            "description": "CSR read data"
+          },
+          {
+            "name": "branch_taken_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Taken branch/jump"
+          },
+          {
+            "name": "branch_target_o",
+            "direction": "output",
+            "width": 32,
+            "description": "Redirect target"
+          },
+          {
+            "name": "wb_en_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Writeback enable"
+          },
+          {
+            "name": "wb_rd_idx_o",
+            "direction": "output",
+            "width": 5,
+            "description": "Writeback destination"
+          },
+          {
+            "name": "wb_data_o",
+            "direction": "output",
+            "width": 32,
+            "description": "Writeback data"
+          },
+          {
+            "name": "mem_addr_o",
+            "direction": "output",
+            "width": 32,
+            "description": "Effective memory address"
+          },
+          {
+            "name": "mem_wdata_o",
+            "direction": "output",
+            "width": 32,
+            "description": "Store data"
+          },
+          {
+            "name": "mem_req_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Memory request forward"
+          },
+          {
+            "name": "mem_we_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Store enable forward"
+          },
+          {
+            "name": "trap_req_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Trap request"
+          },
+          {
+            "name": "trap_cause_o",
+            "direction": "output",
+            "width": 4,
+            "description": "Trap cause code"
+          },
+          {
+            "name": "mret_req_o",
+            "direction": "output",
+            "width": 1,
+            "description": "MRET request"
+          },
+          {
+            "name": "stall_o",
+            "direction": "output",
+            "width": 1,
+            "description": "Pipeline stall request"
+          }
+        ],
+        "behavior_contract": {
+          "module_kind": "sequential",
+          "clocked_inputs": [
+            "clk",
+            "pc_i",
+            "rs1_data_i",
+            "rs2_data_i",
+            "imm_i",
+            "rd_idx_i",
+            "alu_op_i",
+            "branch_op_i",
+            "mul_en_i",
+            "mem_req_i",
+            "mem_we_i",
+            "csr_en_i",
+            "mret_i",
+            "illegal_i",
+            "load_data_i",
+            "load_ready_i",
+            "mul_result_i",
+            "mul_done_i",
+            "csr_rdata_i"
+          ],
+          "reset_behavior": "Active-low asynchronous reset clears stall_o, branch_taken_o, wb_en_o, trap_req_o, mret_req_o, and any held execution context.",
+          "state_elements": [
+            "held instruction context for multi-cycle memory or multiply operations",
+            "pending writeback state",
+            "branch redirect pulse state",
+            "trap request pulse state",
+            "mret request pulse state"
+          ],
+          "handshake_protocol": "Each presented instruction class is interpreted from the current decoded controls. ALU and simple branch/jump operations can complete immediately. Memory operations hold context until load_ready_i indicates completion. Multiply operations hold context until mul_done_i indicates completion. CSR read/writeback uses csr_rdata_i. Illegal instructions generate trap_req_o instead of normal completion.",
+          "output_timing": "For single-cycle operations, outputs are valid in the same execution cycle after settle or by the next sampling edge, depending on the enclosing pipeline. stall_o remains asserted while waiting on load_ready_i or mul_done_i. Writeback becomes valid upon operation completion.",
+          "retention_rules": "When stalled on memory or multiply, destination register and operation context are retained until completion or reset.",
+          "completion_semantics": "branch_taken_o/branch_target_o indicate redirect for taken branches and jumps. wb_en_o, wb_rd_idx_o, and wb_data_o define the single architectural commit point. trap_req_o has priority over writeback. mret_req_o requests trap return without writeback.",
+          "forbidden_assumptions": [
+            "Do not assume load_data_i is valid unless load_ready_i is high.",
+            "Do not assume mul_result_i is valid unless mul_done_i is high.",
+            "Do not assume illegal_i can coexist with normal writeback.",
+            "Do not assume stores write back a destination register.",
+            "Do not require proof of hidden regfile contents, hidden ALU result buses, or hidden CSR state at top level unless exposed by a port.",
+            "Treat datapath-class top-level tests as observable integration flows unless the final value is visible at the top interface."
+          ],
+          "integration_scope": "observable_top_level_only"
+        }
+      },
+      {
+        "name": "rv32ec_zmmul_cpu_top",
+        "description": "Observable top-level integration module that instantiates all architectural sub-blocks and sequences reset, optional SPI boot, fetch, execute, traps, interrupts, memory stalls, and fail-stop behavior.",
+        "file": "rv32ec_zmmul_cpu_top.sv",
+        "implementation_style": "controller",
+        "signals": [
+          {
+            "name": "clk",
+            "direction": "input",
+            "width": 1,
+            "description": "Core clock"
+          },
+          {
+            "name": "rst_n",
+            "direction": "input",
+            "width": 1,
+            "description": "Active-low reset"
+          },
+          {
+            "name": "boot_mode_spi",
+            "direction": "input",
+            "width": 1,
+            "description": "Enable SPI boot path"
+          },
+          {
+            "name": "ext_irq",
+            "direction": "input",
+            "width": 1,
+            "description": "Machine external interrupt"
+          },
+          {
+            "name": "instr_ready",
+            "direction": "input",
+            "width": 1,
+            "description": "Instruction fetch response valid"
+          },
+          {
+            "name": "instr_rdata",
+            "direction": "input",
+            "width": 32,
+            "description": "Instruction fetch data"
+          },
+          {
+            "name": "data_ready",
+            "direction": "input",
+            "width": 1,
+            "description": "Data response valid"
+          },
+          {
+            "name": "data_rdata",
+            "direction": "input",
+            "width": 32,
+            "description": "Data read response"
+          },
+          {
+            "name": "spi_ready",
+            "direction": "input",
+            "width": 1,
+            "description": "SPI boot response valid"
+          },
+          {
+            "name": "spi_rdata",
+            "direction": "input",
+            "width": 32,
+            "description": "SPI boot data"
+          },
+          {
+            "name": "instr_req",
+            "direction": "output",
+            "width": 1,
+            "description": "Instruction fetch request"
+          },
+          {
+            "name": "instr_addr",
+            "direction": "output",
+            "width": 32,
+            "description": "Instruction fetch address"
+          },
+          {
+            "name": "data_req",
+            "direction": "output",
+            "width": 1,
+            "description": "Data memory request"
+          },
+          {
+            "name": "data_we",
+            "direction": "output",
+            "width": 1,
+            "description": "Data memory write enable"
+          },
+          {
+            "name": "data_be",
+            "direction": "output",
+            "width": 4,
+            "description": "Data memory byte enables"
+          },
+          {
+            "name": "data_addr",
+            "direction": "output",
+            "width": 32,
+            "description": "Data memory address"
+          },
+          {
+            "name": "data_wdata",
+            "direction": "output",
+            "width": 32,
+            "description": "Data memory write data"
+          },
+          {
+            "name": "spi_req",
+            "direction": "output",
+            "width": 1,
+            "description": "SPI boot request"
+          },
+          {
+            "name": "spi_addr",
+            "direction": "output",
+            "width": 32,
+            "description": "SPI boot source address"
+          },
+          {
+            "name": "fail_stop",
+            "direction": "output",
+            "width": 1,
+            "description": "Terminal boot failure indication"
+          }
+        ],
+        "behavior_contract": {
+          "module_kind": "sequential",
+          "clocked_inputs": [
+            "clk",
+            "boot_mode_spi",
+            "ext_irq",
+            "instr_ready",
+            "instr_rdata",
+            "data_ready",
+            "data_rdata",
+            "spi_ready",
+            "spi_rdata"
+          ],
+          "reset_behavior": "Active-low asynchronous reset clears fail-stop state, clears in-flight CPU/boot operations, selects reset vector behavior, and begins either normal fetch or SPI boot sequencing after reset release depending on boot_mode_spi.",
+          "state_elements": [
+            "global boot-vs-run control state",
+            "fail-stop latch",
+            "front-end pipeline state via instantiated fetch",
+            "decode/execute issued instruction context",
+            "outstanding memory and multiply wait state context",
+            "boot entry PC selection state"
+          ],
+          "handshake_protocol": "Top-level instruction fetch, data memory, and SPI boot interfaces are the only observable protocol surfaces. instr_req/instr_addr drive instruction fetch. data_req/data_we/data_be/data_addr/data_wdata drive variable-latency data access and remain stable across waits. spi_req/spi_addr drive boot reads until boot completion or fail-stop. ext_irq is sampled as an asynchronous machine interrupt source routed through CSR/trap control.",
+          "output_timing": "Observable outputs update on clock boundaries according to boot sequencing, fetch progression, memory stalls, branch/trap redirects, and fail-stop entry. During stalls, externally visible request/address outputs hold stable as required by the subordinate units.",
+          "retention_rules": "Once fail_stop asserts, all externally visible CPU request outputs are quiesced or held in terminal safe state until reset. During memory and multiply waits, fetch-facing outputs retain the held PC behavior required by the microarchitecture.",
+          "completion_semantics": "Boot success transitions the core from SPI boot into normal instruction fetch from the returned boot PC. Illegal instructions, interrupts, and MRET cause only externally visible redirect behavior through subsequent instruction fetch addresses; internal datapath values are not part of the top-level contract.",
+          "forbidden_assumptions": [
+            "Do not assume internal register or ALU results are externally visible at top level.",
+            "Do not assume instruction and data memories are single-cycle.",
+            "Do not assume boot_mode_spi can be ignored after reset release.",
+            "Do not assume fail-stop permits later fetch or data traffic without reset.",
+            "Do not require proof of hidden regfile contents, hidden ALU result buses, or hidden CSR state at top level unless exposed by a port.",
+            "Treat datapath-class top-level tests as observable integration flows unless the final value is visible at the top interface."
+          ],
+          "integration_scope": "observable_top_level_only"
+        }
+      }
+    ],
+    "packages": [
+      {
+        "name": "rv32ec_zmmul_core",
+        "file": "rv32ec_zmmul_core_pkg.sv",
+        "description": "Global constants/enums/typedefs"
+      }
+    ],
+    "generation_order": [
+      "rv32ec_zmmul_core_pkg.sv",
+      "alu32_branch_unit.sv",
+      "multiplier_unit.sv",
+      "regfile_16x32.sv",
+      "decode_control_unit.sv",
+      "fetch_unit.sv",
+      "csr_trap_controller.sv",
+      "load_store_unit.sv",
+      "boot_rom_loader.sv",
+      "execute_writeback_unit.sv",
+      "rv32ec_zmmul_cpu_top.sv"
+    ],
+    "dependency_graph": {
+      "rv32ec_zmmul_cpu_top": [
+        "fetch_unit",
+        "decode_control_unit",
+        "execute_writeback_unit",
+        "alu32_branch_unit",
+        "multiplier_unit",
+        "regfile_16x32",
+        "csr_trap_controller",
+        "load_store_unit",
+        "boot_rom_loader"
+      ],
+      "execute_writeback_unit": [
+        "alu32_branch_unit"
+      ],
+      "fetch_unit": [],
+      "decode_control_unit": [],
+      "alu32_branch_unit": [],
+      "multiplier_unit": [],
+      "regfile_16x32": [],
+      "csr_trap_controller": [],
+      "load_store_unit": [],
+      "boot_rom_loader": []
+    },
+    "rtl_rules": {
+      "synthesizable": true,
+      "use_always_ff_comb": true,
+      "async_reset": true,
+      "no_delays": true,
+      "no_latches": true,
+      "bit_width_must_match": true,
+      "each_module_own_file": true,
+      "timescale": "`timescale 1ns/1ps"
+    },
+    "tb_rules": {
+      "style": "module_with_ports",
+      "tb_does_not_instantiate_dut": true,
+      "no_fatal_on_test_fail": true,
+      "use_fail_count_not_fatal": true,
+      "print_pass_fail_each_case": true,
+      "print_summary_at_end": true,
+      "continue_after_fail": true,
+      "watchdog_timeout": 1000000,
+      "test_reset_behavior": true,
+      "test_boundary_values": true
+    },
+    "external_interfaces": [
+      {
+        "name": "instruction_fetch_if",
+        "direction": "master",
+        "description": "Observable request/ready instruction fetch interface exposed at top level."
+      },
+      {
+        "name": "data_memory_if",
+        "direction": "master",
+        "description": "Observable variable-latency load/store interface exposed at top level."
+      },
+      {
+        "name": "spi_boot_if",
+        "direction": "master",
+        "description": "Observable SPI boot read interface exposed at top level."
+      },
+      {
+        "name": "interrupt_if",
+        "direction": "input",
+        "description": "Single machine external interrupt input."
+      },
+      {
+        "name": "fail_stop_if",
+        "direction": "output",
+        "description": "Terminal boot failure indicator for integration-level verification."
+      }
+    ],
+    "testcase_plan": [
+      {
+        "module": "rv32ec_zmmul_cpu_top",
+        "tb_file": "tb_rv32ec_zmmul_cpu_top.sv",
+        "testcases": [
+          {
+            "id": "TC001",
+            "operation": "RESET_FETCH_BOOT_ROM",
+            "stimulus": "clk toggling; rst_n=0 then rst_n=1; boot_mode_spi=0; ext_irq=0; instr_ready=0; instr_rdata=0x00000000; data_ready=0; data_rdata=0x00000000; spi_ready=0; spi_rdata=0x00000000",
+            "expected": "After reset release in non-SPI boot mode, instruction fetch starts from reset vector/base boot ROM address with no data or SPI activity and no fail-stop.",
+            "checks": [
+              {
+                "signal": "instr_req",
+                "value": "1",
+                "condition": "after reset is released and fetch becomes active"
+              },
+              {
+                "signal": "instr_addr",
+                "value": "0x00000000",
+                "condition": "first observable fetch after reset release"
+              },
+              {
+                "signal": "data_req",
+                "value": "0",
+                "condition": "same cycle as first fetch request"
+              },
+              {
+                "signal": "spi_req",
+                "value": "0",
+                "condition": "same cycle as first fetch request"
+              },
+              {
+                "signal": "fail_stop",
+                "value": "0",
+                "condition": "after reset release"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Sample on the first active cycle after rst_n rises."
+            }
+          },
+          {
+            "id": "TC002",
+            "operation": "SPI_BOOT_START",
+            "stimulus": "clk toggling; rst_n=1; boot_mode_spi=1; ext_irq=0; instr_ready=0; instr_rdata=0x00000000; data_ready=0; data_rdata=0x00000000; spi_ready=0; spi_rdata=0x00000000",
+            "expected": "SPI boot mode requests boot data and does not yet enter fail-stop.",
+            "checks": [
+              {
+                "signal": "spi_req",
+                "value": "1",
+                "condition": "during boot start before any spi_ready response"
+              },
+              {
+                "signal": "fail_stop",
+                "value": "0",
+                "condition": "during initial boot request"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Observe the first active boot cycle."
+            }
+          },
+          {
+            "id": "TC003",
+            "operation": "SPI_BOOT_SUCCESS_TO_FETCH",
+            "stimulus": "clk toggling; rst_n=1; boot_mode_spi=1; ext_irq=0; spi_ready=1; spi_rdata=0x00000020; instr_ready=0; instr_rdata=0x00000000; data_ready=0; data_rdata=0x00000000",
+            "expected": "Valid SPI boot completion returns execution start PC 0x00000020, deasserts SPI request, begins instruction fetch there, and leaves fail-stop low.",
+            "checks": [
+              {
+                "signal": "spi_req",
+                "value": "0",
+                "condition": "after boot success has been accepted"
+              },
+              {
+                "signal": "instr_req",
+                "value": "1",
+                "condition": "after boot success transitions to fetch mode"
+              },
+              {
+                "signal": "instr_addr",
+                "value": "0x00000020",
+                "condition": "first observable fetch after successful SPI boot"
+              },
+              {
+                "signal": "fail_stop",
+                "value": "0",
+                "condition": "after boot success"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Allow one cycle for boot-complete handoff into fetch."
+            }
+          },
+          {
+            "id": "TC004",
+            "operation": "SPI_BOOT_FAIL_STOP",
+            "stimulus": "clk toggling; rst_n=1; boot_mode_spi=1; ext_irq=0; spi_ready=1; spi_rdata=0xFFFFFFFF; instr_ready=0; instr_rdata=0x00000000; data_ready=0; data_rdata=0x00000000",
+            "expected": "Malformed SPI boot completion enters terminal fail-stop and suppresses instruction/data activity.",
+            "checks": [
+              {
+                "signal": "fail_stop",
+                "value": "1",
+                "condition": "after failing SPI boot word is accepted"
+              },
+              {
+                "signal": "instr_req",
+                "value": "0",
+                "condition": "in fail-stop state"
+              },
+              {
+                "signal": "data_req",
+                "value": "0",
+                "condition": "in fail-stop state"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "level",
+              "notes": "fail_stop is terminal and should persist until reset."
+            }
+          },
+          {
+            "id": "TC005",
+            "operation": "LOAD_HANDSHAKE",
+            "stimulus": "clk toggling; rst_n=1; boot_mode_spi=0; ext_irq=0; instr_ready=1; instr_rdata=0x00002283; data_ready=0; data_rdata=0x00000000; spi_ready=0; spi_rdata=0x00000000",
+            "expected": "A decoded load issues a data memory read request to effective address 0x00000000 with fail-stop remaining low.",
+            "checks": [
+              {
+                "signal": "data_req",
+                "value": "1",
+                "condition": "after the load instruction has reached the observable memory request point"
+              },
+              {
+                "signal": "data_we",
+                "value": "0",
+                "condition": "for the issued load request"
+              },
+              {
+                "signal": "data_addr",
+                "value": "0x00000000",
+                "condition": "for the issued load request"
+              },
+              {
+                "signal": "fail_stop",
+                "value": "0",
+                "condition": "throughout the load request"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "hold_until_next_request",
+              "notes": "One or more cycles may elapse from fetch response to external data request depending on pipeline staging."
+            }
+          },
+          {
+            "id": "TC006",
+            "operation": "STORE_HANDSHAKE",
+            "stimulus": "clk toggling; rst_n=1; boot_mode_spi=0; ext_irq=0; instr_ready=1; instr_rdata=0x00102023; data_ready=0; data_rdata=0x00000000; spi_ready=0; spi_rdata=0x00000000",
+            "expected": "A decoded store issues a data memory write request to effective address 0x00000000 with zero write data under the given operand defaults.",
+            "checks": [
+              {
+                "signal": "data_req",
+                "value": "1",
+                "condition": "after the store instruction has reached the observable memory request point"
+              },
+              {
+                "signal": "data_we",
+                "value": "1",
+                "condition": "for the issued store request"
+              },
+              {
+                "signal": "data_addr",
+                "value": "0x00000000",
+                "condition": "for the issued store request"
+              },
+              {
+                "signal": "data_wdata",
+                "value": "0x00000000",
+                "condition": "for the issued store request with default source operands"
+              },
+              {
+                "signal": "fail_stop",
+                "value": "0",
+                "condition": "throughout the store request"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Observe at the first cycle data_req asserts."
+            }
+          },
+          {
+            "id": "TC007",
+            "operation": "BRANCH_REDIRECT_OBSERVABLE",
+            "stimulus": "clk toggling; rst_n=1; boot_mode_spi=0; ext_irq=0; instr_ready=1; instr_rdata=0x0000006F; data_ready=0; data_rdata=0x00000000; spi_ready=0; spi_rdata=0x00000000",
+            "expected": "A jump/branch-class instruction causes continued instruction fetching with either the current observable PC or a redirected target, but never fail-stop.",
+            "checks": [
+              {
+                "signal": "instr_req",
+                "value": "1",
+                "condition": "during the observable branch/jump flow"
+              },
+              {
+                "signal": "instr_addr",
+                "value": "0x00000000 or redirected_jump_target",
+                "condition": "on the next observable fetch after branch/jump handling"
+              },
+              {
+                "signal": "fail_stop",
+                "value": "0",
+                "condition": "during the branch/jump flow"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Checker should accept either the same visible address or the redirected target exactly as allowed by the inferred testcase wording."
+            }
+          },
+          {
+            "id": "TC008",
+            "operation": "ILLEGAL_DIV_TRAP_FLOW",
+            "stimulus": "clk toggling; rst_n=1; boot_mode_spi=0; ext_irq=0; instr_ready=1; instr_rdata=0x02004033; data_ready=0; data_rdata=0x00000000; spi_ready=0; spi_rdata=0x00000000",
+            "expected": "An unsupported divide/remainder-class encoding does not fail-stop but causes a subsequent fetch redirection away from normal sequential flow toward the trap vector.",
+            "checks": [
+              {
+                "signal": "fail_stop",
+                "value": "0",
+                "condition": "throughout illegal instruction trap handling"
+              },
+              {
+                "signal": "instr_req",
+                "value": "1",
+                "condition": "before and after trap redirection while fetch remains active"
+              },
+              {
+                "signal": "instr_addr",
+                "value": "non_sequential_trap_redirect",
+                "condition": "on the next observable fetch after illegal instruction is decoded and trapped"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 2,
+              "output_persistence": "hold_until_next_request",
+              "notes": "The checker should compare the post-trap fetch address against the sequential PC and require redirection away from that sequential path."
+            }
+          },
+          {
+            "id": "TC009",
+            "operation": "INTERRUPT_ENTRY_FLOW",
+            "stimulus": "clk toggling; rst_n=1; boot_mode_spi=0; ext_irq=1; instr_ready=1; instr_rdata=0x00000013; data_ready=0; data_rdata=0x00000000; spi_ready=0; spi_rdata=0x00000000",
+            "expected": "An external interrupt request does not fail-stop and causes a subsequent fetch redirect to the trap vector.",
+            "checks": [
+              {
+                "signal": "fail_stop",
+                "value": "0",
+                "condition": "during interrupt entry"
+              },
+              {
+                "signal": "instr_req",
+                "value": "1",
+                "condition": "while interrupt redirection is being serviced"
+              },
+              {
+                "signal": "instr_addr",
+                "value": "trap_vector_redirect",
+                "condition": "on the next observable fetch after interrupt acceptance"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 2,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Allow one pipeline cycle to accept the interrupt and one more for redirected fetch visibility."
+            }
+          },
+          {
+            "id": "TC010",
+            "operation": "MEMORY_WAIT_STATE_STALL",
+            "stimulus": "clk toggling; rst_n=1; boot_mode_spi=0; ext_irq=0; instr_ready=1; instr_rdata=0x00002283; data_ready=0; data_rdata=0x00000000; spi_ready=0; spi_rdata=0x00000000",
+            "expected": "A pending load with no data_ready stalls front-end progress so that data_req remains active and instr_addr holds constant until completion.",
+            "checks": [
+              {
+                "signal": "data_req",
+                "value": "1",
+                "condition": "while the load is outstanding and data_ready remains low"
+              },
+              {
+                "signal": "instr_addr",
+                "value": "hold_previous_value",
+                "condition": "across consecutive cycles until data_ready becomes 1"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Checker must compare instr_addr over multiple cycles while data_ready stays low."
+            }
+          },
+          {
+            "id": "TC011",
+            "operation": "MUL_NO_TRAP_FLOW",
+            "stimulus": "clk toggling; rst_n=1; boot_mode_spi=0; ext_irq=0; instr_ready=1; instr_rdata=0x022081B3; data_ready=0; data_rdata=0x00000000; spi_ready=0; spi_rdata=0x00000000",
+            "expected": "A multiply instruction does not trap or fail-stop, issues no data memory request, and causes fetch to stall or replay until multiply completion.",
+            "checks": [
+              {
+                "signal": "fail_stop",
+                "value": "0",
+                "condition": "throughout multiply execution"
+              },
+              {
+                "signal": "data_req",
+                "value": "0",
+                "condition": "during multiply execution because no load/store is involved"
+              },
+              {
+                "signal": "instr_addr",
+                "value": "hold_or_replay_same_fetch",
+                "condition": "while multiply is pending and before completion"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Checker should accept a held or replayed fetch address exactly as allowed by the inferred testcase wording."
+            }
+          },
+          {
+            "id": "TC012",
+            "operation": "MRET_RETURN_FLOW",
+            "stimulus": "clk toggling; rst_n=1; boot_mode_spi=0; ext_irq=0; instr_ready=1; instr_rdata=0x30200073; data_ready=0; data_rdata=0x00000000; spi_ready=0; spi_rdata=0x00000000",
+            "expected": "MRET does not fail-stop and causes the next observable fetch to redirect to saved mepc.",
+            "checks": [
+              {
+                "signal": "fail_stop",
+                "value": "0",
+                "condition": "during MRET handling"
+              },
+              {
+                "signal": "instr_req",
+                "value": "1",
+                "condition": "during the return-to-mepc flow"
+              },
+              {
+                "signal": "instr_addr",
+                "value": "saved_mepc_redirect",
+                "condition": "on the next observable fetch after MRET execution"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 2,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Precondition in the TB should establish a known mepc via prior trap activity or direct CSR programming if the environment permits."
+            }
+          }
+        ]
+      },
+      {
+        "module": "fetch_unit",
+        "tb_file": "tb_fetch_unit.sv",
+        "testcases": [
+          {
+            "id": "TC001",
+            "operation": "RESET_VECTOR_LOAD",
+            "stimulus": "clk toggling; rst_n=0 then rst_n=1; stall_i=0; flush_i=0; trap_redirect_valid_i=0; trap_redirect_pc_i=0x00000100; mret_redirect_valid_i=0; mret_redirect_pc_i=0x00000200; branch_redirect_valid_i=0; branch_redirect_pc_i=0x00000300; instr_ready_i=0; instr_rdata_i=0x00000000; is_compressed_i=0; reset_vector_i=0x00000080",
+            "expected": "After reset release, current PC and request address equal reset_vector_i and no buffered instruction is valid.",
+            "checks": [
+              {
+                "signal": "instr_req_o",
+                "value": "1",
+                "condition": "after reset release"
+              },
+              {
+                "signal": "instr_addr_o",
+                "value": "0x00000080",
+                "condition": "first fetch after reset release"
+              },
+              {
+                "signal": "pc_o",
+                "value": "0x00000080",
+                "condition": "first fetch after reset release"
+              },
+              {
+                "signal": "instr_valid_o",
+                "value": "0",
+                "condition": "before any instr_ready_i response"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Observe the first active cycle after rst_n rises."
+            }
+          },
+          {
+            "id": "TC002",
+            "operation": "SEQUENTIAL_PC_PLUS4",
+            "stimulus": "clk toggling; rst_n=1; stall_i=0; flush_i=0; trap_redirect_valid_i=0; trap_redirect_pc_i=0x00000000; mret_redirect_valid_i=0; mret_redirect_pc_i=0x00000000; branch_redirect_valid_i=0; branch_redirect_pc_i=0x00000000; instr_ready_i=1; instr_rdata_i=0x00000013; is_compressed_i=0; reset_vector_i=0x00000000",
+            "expected": "Fetched 32-bit instruction becomes valid and next fetch address advances by 4.",
+            "checks": [
+              {
+                "signal": "instr_valid_o",
+                "value": "1",
+                "condition": "after accepting instr_ready_i"
+              },
+              {
+                "signal": "instr_o",
+                "value": "0x00000013",
+                "condition": "after accepting instr_ready_i"
+              },
+              {
+                "signal": "instr_addr_o",
+                "value": "0x00000004",
+                "condition": "next fetch address after the captured 32-bit instruction"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Sample captured instruction and next address on the cycle after ready acceptance."
+            }
+          },
+          {
+            "id": "TC003",
+            "operation": "SEQUENTIAL_PC_PLUS2",
+            "stimulus": "clk toggling; rst_n=1; stall_i=0; flush_i=0; trap_redirect_valid_i=0; trap_redirect_pc_i=0x00000000; mret_redirect_valid_i=0; mret_redirect_pc_i=0x00000000; branch_redirect_valid_i=0; branch_redirect_pc_i=0x00000000; instr_ready_i=1; instr_rdata_i=0x00000001; is_compressed_i=1; reset_vector_i=0x00000000",
+            "expected": "Fetched compressed instruction becomes valid and next fetch address advances by 2.",
+            "checks": [
+              {
+                "signal": "instr_valid_o",
+                "value": "1",
+                "condition": "after accepting instr_ready_i"
+              },
+              {
+                "signal": "instr_o",
+                "value": "0x00000001",
+                "condition": "after accepting instr_ready_i"
+              },
+              {
+                "signal": "instr_addr_o",
+                "value": "0x00000002",
+                "condition": "next fetch address after the captured compressed instruction"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "hold_until_next_request",
+              "notes": "is_compressed_i qualifies the retiring instruction length."
+            }
+          },
+          {
+            "id": "TC004",
+            "operation": "BRANCH_REDIRECT_PRIORITY_OVER_SEQUENTIAL",
+            "stimulus": "clk toggling; rst_n=1; stall_i=0; flush_i=1; trap_redirect_valid_i=0; trap_redirect_pc_i=0x00000000; mret_redirect_valid_i=0; mret_redirect_pc_i=0x00000000; branch_redirect_valid_i=1; branch_redirect_pc_i=0x00000120; instr_ready_i=0; instr_rdata_i=0x00000000; is_compressed_i=0; reset_vector_i=0x00000000",
+            "expected": "With flush and branch redirect, fetch address redirects to branch target and buffered instruction is invalidated.",
+            "checks": [
+              {
+                "signal": "instr_addr_o",
+                "value": "0x00000120",
+                "condition": "after branch redirect is applied"
+              },
+              {
+                "signal": "instr_valid_o",
+                "value": "0",
+                "condition": "after flush_i invalidates the buffered instruction"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Redirect is sampled on the active clock edge."
+            }
+          },
+          {
+            "id": "TC005",
+            "operation": "MRET_REDIRECT_PRIORITY_OVER_BRANCH",
+            "stimulus": "clk toggling; rst_n=1; stall_i=0; flush_i=1; trap_redirect_valid_i=0; trap_redirect_pc_i=0x00000000; mret_redirect_valid_i=1; mret_redirect_pc_i=0x00000220; branch_redirect_valid_i=1; branch_redirect_pc_i=0x00000120; instr_ready_i=0; instr_rdata_i=0x00000000; is_compressed_i=0; reset_vector_i=0x00000000",
+            "expected": "MRET redirect overrides branch redirect and clears any buffered instruction.",
+            "checks": [
+              {
+                "signal": "instr_addr_o",
+                "value": "0x00000220",
+                "condition": "after redirect priority is resolved"
+              },
+              {
+                "signal": "instr_valid_o",
+                "value": "0",
+                "condition": "after flush_i invalidates the buffered instruction"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "hold_until_next_request",
+              "notes": "MRET has higher priority than branch."
+            }
+          },
+          {
+            "id": "TC006",
+            "operation": "TRAP_REDIRECT_HIGHEST_PRIORITY",
+            "stimulus": "clk toggling; rst_n=1; stall_i=0; flush_i=1; trap_redirect_valid_i=1; trap_redirect_pc_i=0x00000300; mret_redirect_valid_i=1; mret_redirect_pc_i=0x00000220; branch_redirect_valid_i=1; branch_redirect_pc_i=0x00000120; instr_ready_i=0; instr_rdata_i=0x00000000; is_compressed_i=0; reset_vector_i=0x00000000",
+            "expected": "Trap redirect overrides all other next-PC sources and buffered instruction is invalid.",
+            "checks": [
+              {
+                "signal": "instr_addr_o",
+                "value": "0x00000300",
+                "condition": "after redirect priority is resolved"
+              },
+              {
+                "signal": "instr_valid_o",
+                "value": "0",
+                "condition": "after flush_i invalidates buffered state"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Trap redirect has highest priority."
+            }
+          },
+          {
+            "id": "TC007",
+            "operation": "STALL_HOLDS_FETCH_ADDRESS",
+            "stimulus": "clk toggling; rst_n=1; stall_i=1; flush_i=0; trap_redirect_valid_i=0; trap_redirect_pc_i=0x00000000; mret_redirect_valid_i=0; mret_redirect_pc_i=0x00000000; branch_redirect_valid_i=0; branch_redirect_pc_i=0x00000000; instr_ready_i=0; instr_rdata_i=0x00000000; is_compressed_i=0; reset_vector_i=0x00000000",
+            "expected": "Fetch request remains asserted and fetch address holds the previously selected PC while stalled.",
+            "checks": [
+              {
+                "signal": "instr_req_o",
+                "value": "1",
+                "condition": "during stall_i=1"
+              },
+              {
+                "signal": "instr_addr_o",
+                "value": "hold_previous_value",
+                "condition": "across stalled cycles"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 0,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Checker should compare instr_addr_o over successive stalled cycles."
+            }
+          },
+          {
+            "id": "TC008",
+            "operation": "BUFFER_CAPTURE_ON_READY",
+            "stimulus": "clk toggling; rst_n=1; stall_i=0; flush_i=0; trap_redirect_valid_i=0; trap_redirect_pc_i=0x00000000; mret_redirect_valid_i=0; mret_redirect_pc_i=0x00000000; branch_redirect_valid_i=0; branch_redirect_pc_i=0x00000000; instr_ready_i=1; instr_rdata_i=0xDEADBEEF; is_compressed_i=0; reset_vector_i=0x00000000",
+            "expected": "Instruction buffer captures fetch data when instr_ready_i is asserted.",
+            "checks": [
+              {
+                "signal": "instr_valid_o",
+                "value": "1",
+                "condition": "after accepting instr_ready_i"
+              },
+              {
+                "signal": "instr_o",
+                "value": "0xDEADBEEF",
+                "condition": "after accepting instr_ready_i"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Instruction value should persist until replaced or flushed."
+            }
+          }
+        ]
+      },
+      {
+        "module": "decode_control_unit",
+        "tb_file": "tb_decode_control_unit.sv",
+        "testcases": [
+          {
+            "id": "TC001",
+            "operation": "ADD_DECODE",
+            "stimulus": "instr_i=0x002081B3; pc_i=0x00000000",
+            "expected": "ADD decode identifies rs1=x1, rs2=x2, rd=x3, zero immediate, ALU add, legal, register writeback enabled.",
+            "checks": [
+              {
+                "signal": "rs1_idx_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "rs2_idx_o",
+                "value": "2",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "rd_idx_o",
+                "value": "3",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "imm_o",
+                "value": "0x00000000",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "alu_op_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "mul_en_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "mem_req_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "illegal_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure decode check."
+            }
+          },
+          {
+            "id": "TC002",
+            "operation": "SUB_DECODE",
+            "stimulus": "instr_i=0x402081B3; pc_i=0x00000000",
+            "expected": "SUB decode selects ALU subtract, legal, and writeback enabled.",
+            "checks": [
+              {
+                "signal": "rs1_idx_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "rs2_idx_o",
+                "value": "2",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "rd_idx_o",
+                "value": "3",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "alu_op_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "illegal_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure decode check."
+            }
+          },
+          {
+            "id": "TC003",
+            "operation": "ANDI_IMM_SIGNEXT_DECODE",
+            "stimulus": "instr_i=0xFFF0F113; pc_i=0x00000000",
+            "expected": "Immediate decode sign-extends -1 and selects XOR-class ALU opcode value defined by the scaffold mapping.",
+            "checks": [
+              {
+                "signal": "rs1_idx_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "rs2_idx_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "rd_idx_o",
+                "value": "2",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "imm_o",
+                "value": "0xFFFFFFFF",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "alu_op_o",
+                "value": "4",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "illegal_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure decode check."
+            }
+          },
+          {
+            "id": "TC004",
+            "operation": "LOAD_DECODE",
+            "stimulus": "instr_i=0x00412283; pc_i=0x00000000",
+            "expected": "Load decode generates base register x2, destination x5, offset 4, memory request, read-not-write, legal, and writeback enabled.",
+            "checks": [
+              {
+                "signal": "rs1_idx_o",
+                "value": "2",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "rd_idx_o",
+                "value": "5",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "imm_o",
+                "value": "0x00000004",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "mem_req_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "mem_we_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "illegal_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure decode check."
+            }
+          },
+          {
+            "id": "TC005",
+            "operation": "STORE_DECODE",
+            "stimulus": "instr_i=0x00512423; pc_i=0x00000000",
+            "expected": "Store decode generates base register x2, source x5, offset 8, memory request, write enable, legal, and no register writeback.",
+            "checks": [
+              {
+                "signal": "rs1_idx_o",
+                "value": "2",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "rs2_idx_o",
+                "value": "5",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "imm_o",
+                "value": "0x00000008",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "mem_req_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "mem_we_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "illegal_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure decode check."
+            }
+          },
+          {
+            "id": "TC006",
+            "operation": "BRANCH_DECODE",
+            "stimulus": "instr_i=0x00208463; pc_i=0x00000000",
+            "expected": "Branch decode generates rs1=x1, rs2=x2, offset 8, branch op select, legal, and no writeback.",
+            "checks": [
+              {
+                "signal": "rs1_idx_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "rs2_idx_o",
+                "value": "2",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "imm_o",
+                "value": "0x00000008",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_op_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "illegal_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure decode check."
+            }
+          },
+          {
+            "id": "TC007",
+            "operation": "JAL_DECODE",
+            "stimulus": "instr_i=0x010000EF; pc_i=0x00000000",
+            "expected": "JAL decode generates rd=x1, offset 16, jump branch_op, legal, and writeback enabled.",
+            "checks": [
+              {
+                "signal": "rd_idx_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "imm_o",
+                "value": "0x00000010",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_op_o",
+                "value": "6",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "illegal_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure decode check."
+            }
+          },
+          {
+            "id": "TC008",
+            "operation": "MUL_DECODE",
+            "stimulus": "instr_i=0x022081B3; pc_i=0x00000000",
+            "expected": "Supported Zmmul multiply decode asserts mul enable, remains legal, and writes back to rd=x3.",
+            "checks": [
+              {
+                "signal": "rs1_idx_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "rs2_idx_o",
+                "value": "2",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "rd_idx_o",
+                "value": "3",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "mul_en_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "illegal_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure decode check."
+            }
+          },
+          {
+            "id": "TC009",
+            "operation": "DIV_ILLEGAL_DECODE",
+            "stimulus": "instr_i=0x0220C1B3; pc_i=0x00000000",
+            "expected": "Unsupported divide/remainder decode is flagged illegal with no multiply, no memory request, and no writeback.",
+            "checks": [
+              {
+                "signal": "illegal_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "mul_en_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "mem_req_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Illegal decode must suppress normal execution enables."
+            }
+          },
+          {
+            "id": "TC010",
+            "operation": "X16_REFERENCE_ILLEGAL_DECODE",
+            "stimulus": "instr_i=0x00280833; pc_i=0x00000000",
+            "expected": "Any reference to x16-x31 is illegal for RV32E profile.",
+            "checks": [
+              {
+                "signal": "illegal_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Single-signal legality check."
+            }
+          },
+          {
+            "id": "TC011",
+            "operation": "CSRRS_DECODE",
+            "stimulus": "instr_i=0x300120F3; pc_i=0x00000000",
+            "expected": "CSR access decode identifies rs1=x2, rd=x1, CSR enable asserted, legal, and writeback enabled.",
+            "checks": [
+              {
+                "signal": "rs1_idx_o",
+                "value": "2",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "rd_idx_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "csr_en_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "illegal_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure decode check."
+            }
+          },
+          {
+            "id": "TC012",
+            "operation": "MRET_DECODE",
+            "stimulus": "instr_i=0x30200073; pc_i=0x00000000",
+            "expected": "MRET decode asserts mret and is legal with no writeback.",
+            "checks": [
+              {
+                "signal": "mret_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "illegal_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure decode check."
+            }
+          },
+          {
+            "id": "TC013",
+            "operation": "C_ADD_DECODE",
+            "stimulus": "instr_i=0x0000908A; pc_i=0x00000000",
+            "expected": "Compressed C.ADD decode identifies rs1=x1, rs2=x2, rd=x1, compressed marker set, legal, and writeback enabled.",
+            "checks": [
+              {
+                "signal": "rs1_idx_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "rs2_idx_o",
+                "value": "2",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "rd_idx_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "is_compressed_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "illegal_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Compressed decode path check."
+            }
+          },
+          {
+            "id": "TC014",
+            "operation": "C_ANDI_DECODE",
+            "stimulus": "instr_i=0x00008865; pc_i=0x00000000",
+            "expected": "Compressed C.ANDI decode identifies compact register x8, immediate 0x19, compressed marker set, legal, and writeback enabled.",
+            "checks": [
+              {
+                "signal": "rs1_idx_o",
+                "value": "8",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "rd_idx_o",
+                "value": "8",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "imm_o",
+                "value": "0x00000019",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "is_compressed_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "illegal_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Compressed immediate path check."
+            }
+          },
+          {
+            "id": "TC015",
+            "operation": "C_EBREAK_DECODE",
+            "stimulus": "instr_i=0x00009002; pc_i=0x00000000",
+            "expected": "Compressed C.EBREAK decode asserts ebreak, marks compressed, is legal, and does not write back.",
+            "checks": [
+              {
+                "signal": "ebreak_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "is_compressed_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "illegal_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Compressed system instruction decode check."
+            }
+          }
+        ]
+      },
+      {
+        "module": "execute_writeback_unit",
+        "tb_file": "tb_execute_writeback_unit.sv",
+        "testcases": [
+          {
+            "id": "TC001",
+            "operation": "ALU_WRITEBACK",
+            "stimulus": "clk toggling; rst_n=1; pc_i=0x00000000; rs1_data_i=0x00000005; rs2_data_i=0x00000003; imm_i=0x00000000; rd_idx_i=3; alu_op_i=0; branch_op_i=0; mul_en_i=0; mem_req_i=0; mem_we_i=0; csr_en_i=0; mret_i=0; illegal_i=0; load_data_i=0x00000000; load_ready_i=0; mul_result_i=0x00000000; mul_done_i=0; csr_rdata_i=0x00000000",
+            "expected": "Simple ALU add writes x3=8 with no branch, no trap, and no stall.",
+            "checks": [
+              {
+                "signal": "wb_en_o",
+                "value": "1",
+                "condition": "on ALU completion"
+              },
+              {
+                "signal": "wb_rd_idx_o",
+                "value": "3",
+                "condition": "on ALU completion"
+              },
+              {
+                "signal": "wb_data_o",
+                "value": "0x00000008",
+                "condition": "on ALU completion"
+              },
+              {
+                "signal": "branch_taken_o",
+                "value": "0",
+                "condition": "same cycle"
+              },
+              {
+                "signal": "trap_req_o",
+                "value": "0",
+                "condition": "same cycle"
+              },
+              {
+                "signal": "stall_o",
+                "value": "0",
+                "condition": "same cycle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "pulse",
+              "notes": "This unit may be implemented with same-cycle combinational datapath inside a clocked stage; sample on the active execution cycle boundary."
+            }
+          },
+          {
+            "id": "TC002",
+            "operation": "BRANCH_TAKEN_REDIRECT",
+            "stimulus": "clk toggling; rst_n=1; pc_i=0x00000100; rs1_data_i=0x00000009; rs2_data_i=0x00000009; imm_i=0x00000010; rd_idx_i=0; alu_op_i=0; branch_op_i=1; mul_en_i=0; mem_req_i=0; mem_we_i=0; csr_en_i=0; mret_i=0; illegal_i=0; load_data_i=0x00000000; load_ready_i=0; mul_result_i=0x00000000; mul_done_i=0; csr_rdata_i=0x00000000",
+            "expected": "BEQ true branches to PC+0x10 without writeback or trap.",
+            "checks": [
+              {
+                "signal": "branch_taken_o",
+                "value": "1",
+                "condition": "on branch evaluation"
+              },
+              {
+                "signal": "branch_target_o",
+                "value": "0x00000110",
+                "condition": "when branch_taken_o is asserted"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "0",
+                "condition": "for this branch instruction"
+              },
+              {
+                "signal": "trap_req_o",
+                "value": "0",
+                "condition": "for this legal branch instruction"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "pulse",
+              "notes": "Branch outputs are sampled in the execution cycle."
+            }
+          },
+          {
+            "id": "TC003",
+            "operation": "BRANCH_NOT_TAKEN",
+            "stimulus": "clk toggling; rst_n=1; pc_i=0x00000100; rs1_data_i=0x00000009; rs2_data_i=0x00000008; imm_i=0x00000010; rd_idx_i=0; alu_op_i=0; branch_op_i=1; mul_en_i=0; mem_req_i=0; mem_we_i=0; csr_en_i=0; mret_i=0; illegal_i=0; load_data_i=0x00000000; load_ready_i=0; mul_result_i=0x00000000; mul_done_i=0; csr_rdata_i=0x00000000",
+            "expected": "BEQ false does not redirect and does not write back or trap.",
+            "checks": [
+              {
+                "signal": "branch_taken_o",
+                "value": "0",
+                "condition": "on branch evaluation"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "0",
+                "condition": "for this branch instruction"
+              },
+              {
+                "signal": "trap_req_o",
+                "value": "0",
+                "condition": "for this legal branch instruction"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "pulse",
+              "notes": "No redirect should be observed."
+            }
+          },
+          {
+            "id": "TC004",
+            "operation": "JAL_LINK_WRITEBACK",
+            "stimulus": "clk toggling; rst_n=1; pc_i=0x00000100; rs1_data_i=0x00000000; rs2_data_i=0x00000000; imm_i=0x00000020; rd_idx_i=1; alu_op_i=0; branch_op_i=6; mul_en_i=0; mem_req_i=0; mem_we_i=0; csr_en_i=0; mret_i=0; illegal_i=0; load_data_i=0x00000000; load_ready_i=0; mul_result_i=0x00000000; mul_done_i=0; csr_rdata_i=0x00000000",
+            "expected": "JAL redirects to PC+0x20 and writes link address PC+4 to x1.",
+            "checks": [
+              {
+                "signal": "branch_taken_o",
+                "value": "1",
+                "condition": "on JAL execution"
+              },
+              {
+                "signal": "branch_target_o",
+                "value": "0x00000120",
+                "condition": "on JAL execution"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "1",
+                "condition": "on JAL completion"
+              },
+              {
+                "signal": "wb_rd_idx_o",
+                "value": "1",
+                "condition": "on JAL completion"
+              },
+              {
+                "signal": "wb_data_o",
+                "value": "0x00000104",
+                "condition": "on JAL completion"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "pulse",
+              "notes": "Link address assumes 32-bit instruction step consistent with testcase."
+            }
+          },
+          {
+            "id": "TC005",
+            "operation": "LOAD_WAIT_STALL",
+            "stimulus": "clk toggling; rst_n=1; pc_i=0x00000000; rs1_data_i=0x00001000; rs2_data_i=0x00000000; imm_i=0x00000004; rd_idx_i=5; alu_op_i=0; branch_op_i=0; mul_en_i=0; mem_req_i=1; mem_we_i=0; csr_en_i=0; mret_i=0; illegal_i=0; load_data_i=0x00000000; load_ready_i=0; mul_result_i=0x00000000; mul_done_i=0; csr_rdata_i=0x00000000",
+            "expected": "Outstanding load forwards a memory request, computes address 0x1004, stalls the pipeline, and suppresses writeback until completion.",
+            "checks": [
+              {
+                "signal": "mem_req_o",
+                "value": "1",
+                "condition": "while waiting for load_ready_i"
+              },
+              {
+                "signal": "mem_we_o",
+                "value": "0",
+                "condition": "for load operation"
+              },
+              {
+                "signal": "mem_addr_o",
+                "value": "0x00001004",
+                "condition": "for the issued load"
+              },
+              {
+                "signal": "stall_o",
+                "value": "1",
+                "condition": "while load_ready_i=0"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "0",
+                "condition": "before load completion"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Outputs should hold until load_ready_i is asserted."
+            }
+          },
+          {
+            "id": "TC006",
+            "operation": "LOAD_COMPLETE_WRITEBACK",
+            "stimulus": "clk toggling; rst_n=1; pc_i=0x00000000; rs1_data_i=0x00001000; rs2_data_i=0x00000000; imm_i=0x00000004; rd_idx_i=5; alu_op_i=0; branch_op_i=0; mul_en_i=0; mem_req_i=1; mem_we_i=0; csr_en_i=0; mret_i=0; illegal_i=0; load_data_i=0xA5A5A5A5; load_ready_i=1; mul_result_i=0x00000000; mul_done_i=0; csr_rdata_i=0x00000000",
+            "expected": "Completed load writes returned data to x5 and releases stall.",
+            "checks": [
+              {
+                "signal": "mem_addr_o",
+                "value": "0x00001004",
+                "condition": "for the completed load"
+              },
+              {
+                "signal": "stall_o",
+                "value": "0",
+                "condition": "when load_ready_i=1 completes the transaction"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "1",
+                "condition": "on load completion"
+              },
+              {
+                "signal": "wb_rd_idx_o",
+                "value": "5",
+                "condition": "on load completion"
+              },
+              {
+                "signal": "wb_data_o",
+                "value": "0xA5A5A5A5",
+                "condition": "on load completion"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "pulse",
+              "notes": "Completion may be recognized in the same cycle load_ready_i is asserted."
+            }
+          },
+          {
+            "id": "TC007",
+            "operation": "STORE_ISSUE",
+            "stimulus": "clk toggling; rst_n=1; pc_i=0x00000000; rs1_data_i=0x00002000; rs2_data_i=0x12345678; imm_i=0x00000008; rd_idx_i=0; alu_op_i=0; branch_op_i=0; mul_en_i=0; mem_req_i=1; mem_we_i=1; csr_en_i=0; mret_i=0; illegal_i=0; load_data_i=0x00000000; load_ready_i=0; mul_result_i=0x00000000; mul_done_i=0; csr_rdata_i=0x00000000",
+            "expected": "Store issues memory request/write to address 0x2008 with provided store data and no writeback.",
+            "checks": [
+              {
+                "signal": "mem_req_o",
+                "value": "1",
+                "condition": "for the store issue cycle"
+              },
+              {
+                "signal": "mem_we_o",
+                "value": "1",
+                "condition": "for the store issue cycle"
+              },
+              {
+                "signal": "mem_addr_o",
+                "value": "0x00002008",
+                "condition": "for the store issue cycle"
+              },
+              {
+                "signal": "mem_wdata_o",
+                "value": "0x12345678",
+                "condition": "for the store issue cycle"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "0",
+                "condition": "for store operations"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Store completion timing is not required by this testcase."
+            }
+          },
+          {
+            "id": "TC008",
+            "operation": "MUL_WAIT_STALL",
+            "stimulus": "clk toggling; rst_n=1; pc_i=0x00000000; rs1_data_i=0x00000006; rs2_data_i=0x00000007; imm_i=0x00000000; rd_idx_i=4; alu_op_i=0; branch_op_i=0; mul_en_i=1; mem_req_i=0; mem_we_i=0; csr_en_i=0; mret_i=0; illegal_i=0; load_data_i=0x00000000; load_ready_i=0; mul_result_i=0x00000000; mul_done_i=0; csr_rdata_i=0x00000000",
+            "expected": "Multiply operation stalls the pipeline until mul_done_i and does not trap or write back early.",
+            "checks": [
+              {
+                "signal": "stall_o",
+                "value": "1",
+                "condition": "while mul_done_i=0 for an active multiply"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "0",
+                "condition": "before multiply completion"
+              },
+              {
+                "signal": "trap_req_o",
+                "value": "0",
+                "condition": "for legal multiply operations"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Held execution context is implied while stalled."
+            }
+          },
+          {
+            "id": "TC009",
+            "operation": "MUL_COMPLETE_WRITEBACK",
+            "stimulus": "clk toggling; rst_n=1; pc_i=0x00000000; rs1_data_i=0x00000006; rs2_data_i=0x00000007; imm_i=0x00000000; rd_idx_i=4; alu_op_i=0; branch_op_i=0; mul_en_i=1; mem_req_i=0; mem_we_i=0; csr_en_i=0; mret_i=0; illegal_i=0; load_data_i=0x00000000; load_ready_i=0; mul_result_i=0x0000002A; mul_done_i=1; csr_rdata_i=0x00000000",
+            "expected": "Completed multiply writes result 0x2A to x4 and releases stall.",
+            "checks": [
+              {
+                "signal": "stall_o",
+                "value": "0",
+                "condition": "when mul_done_i=1 completes the multiply"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "1",
+                "condition": "on multiply completion"
+              },
+              {
+                "signal": "wb_rd_idx_o",
+                "value": "4",
+                "condition": "on multiply completion"
+              },
+              {
+                "signal": "wb_data_o",
+                "value": "0x0000002A",
+                "condition": "on multiply completion"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "pulse",
+              "notes": "Completion may be recognized in the same cycle mul_done_i is asserted."
+            }
+          },
+          {
+            "id": "TC010",
+            "operation": "CSR_READ_WRITEBACK",
+            "stimulus": "clk toggling; rst_n=1; pc_i=0x00000000; rs1_data_i=0x00000001; rs2_data_i=0x00000000; imm_i=0x00000000; rd_idx_i=1; alu_op_i=0; branch_op_i=0; mul_en_i=0; mem_req_i=0; mem_we_i=0; csr_en_i=1; mret_i=0; illegal_i=0; load_data_i=0x00000000; load_ready_i=0; mul_result_i=0x00000000; mul_done_i=0; csr_rdata_i=0x00001800",
+            "expected": "CSR access writes back the provided CSR read data to x1 without trap.",
+            "checks": [
+              {
+                "signal": "wb_en_o",
+                "value": "1",
+                "condition": "on CSR operation completion"
+              },
+              {
+                "signal": "wb_rd_idx_o",
+                "value": "1",
+                "condition": "on CSR operation completion"
+              },
+              {
+                "signal": "wb_data_o",
+                "value": "0x00001800",
+                "condition": "on CSR operation completion"
+              },
+              {
+                "signal": "trap_req_o",
+                "value": "0",
+                "condition": "for legal CSR operations"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "pulse",
+              "notes": "CSR path is treated as a single-cycle execution source here."
+            }
+          },
+          {
+            "id": "TC011",
+            "operation": "ILLEGAL_TRAP_REQUEST",
+            "stimulus": "clk toggling; rst_n=1; pc_i=0x00000040; rs1_data_i=0x00000000; rs2_data_i=0x00000000; imm_i=0x00000000; rd_idx_i=0; alu_op_i=0; branch_op_i=0; mul_en_i=0; mem_req_i=0; mem_we_i=0; csr_en_i=0; mret_i=0; illegal_i=1; load_data_i=0x00000000; load_ready_i=0; mul_result_i=0x00000000; mul_done_i=0; csr_rdata_i=0x00000000",
+            "expected": "Illegal instruction raises trap cause 2 and suppresses writeback.",
+            "checks": [
+              {
+                "signal": "trap_req_o",
+                "value": "1",
+                "condition": "for illegal_i=1"
+              },
+              {
+                "signal": "trap_cause_o",
+                "value": "2",
+                "condition": "when trap_req_o is asserted for illegal instruction"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "0",
+                "condition": "for illegal instructions"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "pulse",
+              "notes": "Trap has priority over normal execution."
+            }
+          },
+          {
+            "id": "TC012",
+            "operation": "MRET_REQUEST",
+            "stimulus": "clk toggling; rst_n=1; pc_i=0x00000080; rs1_data_i=0x00000000; rs2_data_i=0x00000000; imm_i=0x00000000; rd_idx_i=0; alu_op_i=0; branch_op_i=0; mul_en_i=0; mem_req_i=0; mem_we_i=0; csr_en_i=0; mret_i=1; illegal_i=0; load_data_i=0x00000000; load_ready_i=0; mul_result_i=0x00000000; mul_done_i=0; csr_rdata_i=0x00000000",
+            "expected": "MRET requests return-from-trap with no trap and no writeback.",
+            "checks": [
+              {
+                "signal": "mret_req_o",
+                "value": "1",
+                "condition": "for mret_i=1"
+              },
+              {
+                "signal": "trap_req_o",
+                "value": "0",
+                "condition": "for MRET execution"
+              },
+              {
+                "signal": "wb_en_o",
+                "value": "0",
+                "condition": "for MRET execution"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "pulse",
+              "notes": "MRET is a control-flow operation only."
+            }
+          }
+        ]
+      },
+      {
+        "module": "alu32_branch_unit",
+        "tb_file": "tb_alu32_branch_unit.sv",
+        "testcases": [
+          {
+            "id": "TC001",
+            "operation": "ADD",
+            "stimulus": "op_a_i=0x00000005; op_b_i=0x00000003; pc_i=0x00000000; imm_i=0x00000000; alu_op_i=0; branch_op_i=0",
+            "expected": "ALU add produces 8 with no branch activity.",
+            "checks": [
+              {
+                "signal": "result_o",
+                "value": "0x00000008",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_taken_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_target_o",
+                "value": "0x00000000",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure combinational ALU check."
+            }
+          },
+          {
+            "id": "TC002",
+            "operation": "SUB",
+            "stimulus": "op_a_i=0x00000005; op_b_i=0x00000003; pc_i=0x00000000; imm_i=0x00000000; alu_op_i=1; branch_op_i=0",
+            "expected": "ALU subtract produces 2 with no branch activity.",
+            "checks": [
+              {
+                "signal": "result_o",
+                "value": "0x00000002",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_taken_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_target_o",
+                "value": "0x00000000",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure combinational ALU check."
+            }
+          },
+          {
+            "id": "TC003",
+            "operation": "AND",
+            "stimulus": "op_a_i=0x000000F0; op_b_i=0x000000CC; pc_i=0x00000000; imm_i=0x00000000; alu_op_i=2; branch_op_i=0",
+            "expected": "ALU AND produces 0xC0 with no branch activity.",
+            "checks": [
+              {
+                "signal": "result_o",
+                "value": "0x000000C0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_taken_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_target_o",
+                "value": "0x00000000",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure combinational ALU check."
+            }
+          },
+          {
+            "id": "TC004",
+            "operation": "OR",
+            "stimulus": "op_a_i=0x000000F0; op_b_i=0x0000000C; pc_i=0x00000000; imm_i=0x00000000; alu_op_i=3; branch_op_i=0",
+            "expected": "ALU OR produces 0xFC with no branch activity.",
+            "checks": [
+              {
+                "signal": "result_o",
+                "value": "0x000000FC",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_taken_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_target_o",
+                "value": "0x00000000",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure combinational ALU check."
+            }
+          },
+          {
+            "id": "TC005",
+            "operation": "XOR",
+            "stimulus": "op_a_i=0x000000F0; op_b_i=0x000000CC; pc_i=0x00000000; imm_i=0x00000000; alu_op_i=4; branch_op_i=0",
+            "expected": "ALU XOR produces 0x3C with no branch activity.",
+            "checks": [
+              {
+                "signal": "result_o",
+                "value": "0x0000003C",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_taken_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_target_o",
+                "value": "0x00000000",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure combinational ALU check."
+            }
+          },
+          {
+            "id": "TC006",
+            "operation": "SLL",
+            "stimulus": "op_a_i=0x00000003; op_b_i=0x00000004; pc_i=0x00000000; imm_i=0x00000000; alu_op_i=5; branch_op_i=0",
+            "expected": "ALU SLL produces 0x30 with no branch activity.",
+            "checks": [
+              {
+                "signal": "result_o",
+                "value": "0x00000030",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_taken_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_target_o",
+                "value": "0x00000000",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure combinational ALU check."
+            }
+          },
+          {
+            "id": "TC007",
+            "operation": "SRL",
+            "stimulus": "op_a_i=0x80000000; op_b_i=0x00000004; pc_i=0x00000000; imm_i=0x00000000; alu_op_i=6; branch_op_i=0",
+            "expected": "ALU SRL produces 0x08000000 with no branch activity.",
+            "checks": [
+              {
+                "signal": "result_o",
+                "value": "0x08000000",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_taken_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_target_o",
+                "value": "0x00000000",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure combinational ALU check."
+            }
+          },
+          {
+            "id": "TC008",
+            "operation": "SRA",
+            "stimulus": "op_a_i=0x80000000; op_b_i=0x00000004; pc_i=0x00000000; imm_i=0x00000000; alu_op_i=7; branch_op_i=0",
+            "expected": "ALU SRA produces 0xF8000000 with no branch activity.",
+            "checks": [
+              {
+                "signal": "result_o",
+                "value": "0xF8000000",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_taken_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_target_o",
+                "value": "0x00000000",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure combinational ALU check."
+            }
+          },
+          {
+            "id": "TC009",
+            "operation": "SLT_SIGNED_TRUE",
+            "stimulus": "op_a_i=0xFFFFFFFF; op_b_i=0x00000001; pc_i=0x00000000; imm_i=0x00000000; alu_op_i=8; branch_op_i=0",
+            "expected": "Signed less-than compare returns 1 with no branch activity.",
+            "checks": [
+              {
+                "signal": "result_o",
+                "value": "0x00000001",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_taken_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_target_o",
+                "value": "0x00000000",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure combinational compare check."
+            }
+          },
+          {
+            "id": "TC010",
+            "operation": "SLTU_TRUE",
+            "stimulus": "op_a_i=0x00000001; op_b_i=0xFFFFFFFF; pc_i=0x00000000; imm_i=0x00000000; alu_op_i=9; branch_op_i=0",
+            "expected": "Unsigned less-than compare returns 1 with no branch activity.",
+            "checks": [
+              {
+                "signal": "result_o",
+                "value": "0x00000001",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_taken_o",
+                "value": "0",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_target_o",
+                "value": "0x00000000",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Pure combinational compare check."
+            }
+          },
+          {
+            "id": "TC011",
+            "operation": "BEQ_TAKEN",
+            "stimulus": "op_a_i=0x00000009; op_b_i=0x00000009; pc_i=0x00000100; imm_i=0x00000010; alu_op_i=0; branch_op_i=1",
+            "expected": "BEQ condition is true and branch target is PC+0x10; ALU result remains defined as add result 0x12 per inferred testcase.",
+            "checks": [
+              {
+                "signal": "result_o",
+                "value": "0x00000012",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_taken_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_target_o",
+                "value": "0x00000110",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Branch and ALU outputs are both checked."
+            }
+          },
+          {
+            "id": "TC012",
+            "operation": "BNE_TAKEN",
+            "stimulus": "op_a_i=0x00000009; op_b_i=0x00000008; pc_i=0x00000100; imm_i=0x00000010; alu_op_i=0; branch_op_i=2",
+            "expected": "BNE condition is true and target is PC+0x10.",
+            "checks": [
+              {
+                "signal": "branch_taken_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_target_o",
+                "value": "0x00000110",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Branch condition path check."
+            }
+          },
+          {
+            "id": "TC013",
+            "operation": "BLT_TAKEN",
+            "stimulus": "op_a_i=0xFFFFFFFF; op_b_i=0x00000001; pc_i=0x00000100; imm_i=0x00000010; alu_op_i=0; branch_op_i=3",
+            "expected": "Signed BLT condition is true and target is PC+0x10.",
+            "checks": [
+              {
+                "signal": "branch_taken_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_target_o",
+                "value": "0x00000110",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Signed branch compare check."
+            }
+          },
+          {
+            "id": "TC014",
+            "operation": "BGEU_TAKEN",
+            "stimulus": "op_a_i=0xFFFFFFFF; op_b_i=0x00000001; pc_i=0x00000100; imm_i=0x00000010; alu_op_i=0; branch_op_i=4",
+            "expected": "Unsigned greater-or-equal condition is true and target is PC+0x10.",
+            "checks": [
+              {
+                "signal": "branch_taken_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_target_o",
+                "value": "0x00000110",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Unsigned branch compare check."
+            }
+          },
+          {
+            "id": "TC015",
+            "operation": "JAL_TARGET",
+            "stimulus": "op_a_i=0x00000000; op_b_i=0x00000000; pc_i=0x00000200; imm_i=0x00000020; alu_op_i=0; branch_op_i=6",
+            "expected": "JAL always redirects to PC+0x20.",
+            "checks": [
+              {
+                "signal": "branch_taken_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_target_o",
+                "value": "0x00000220",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Unconditional jump target check."
+            }
+          },
+          {
+            "id": "TC016",
+            "operation": "JALR_TARGET_ALIGN",
+            "stimulus": "op_a_i=0x00000301; op_b_i=0x00000000; pc_i=0x00000000; imm_i=0x00000008; alu_op_i=0; branch_op_i=7",
+            "expected": "JALR redirects to aligned target 0x00000308.",
+            "checks": [
+              {
+                "signal": "branch_taken_o",
+                "value": "1",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "branch_target_o",
+                "value": "0x00000308",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "LSB of JALR target must be cleared."
+            }
+          }
+        ]
+      },
+      {
+        "module": "multiplier_unit",
+        "tb_file": "tb_multiplier_unit.sv",
+        "testcases": [
+          {
+            "id": "TC001",
+            "operation": "RESET_IDLE",
+            "stimulus": "clk toggling; rst_n=0; start_i=0; op_a_i=0x00000000; op_b_i=0x00000000",
+            "expected": "Reset forces the multiplier idle with cleared outputs.",
+            "checks": [
+              {
+                "signal": "busy_o",
+                "value": "0",
+                "condition": "during active reset"
+              },
+              {
+                "signal": "done_o",
+                "value": "0",
+                "condition": "during active reset"
+              },
+              {
+                "signal": "result_o",
+                "value": "0x00000000",
+                "condition": "during active reset"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "negedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Asynchronous reset check."
+            }
+          },
+          {
+            "id": "TC002",
+            "operation": "MUL_POSITIVE",
+            "stimulus": "clk toggling; rst_n=1; start_i=1 for one acceptance cycle; op_a_i=0x00000006; op_b_i=0x00000007",
+            "expected": "Multiply starts, busy asserts, and later done pulses with result 0x2A.",
+            "checks": [
+              {
+                "signal": "busy_o",
+                "value": "1",
+                "condition": "after start_i is accepted and before completion"
+              },
+              {
+                "signal": "done_o",
+                "value": "1",
+                "condition": "on the completion cycle"
+              },
+              {
+                "signal": "result_o",
+                "value": "0x0000002A",
+                "condition": "when done_o pulses"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "pulse",
+              "notes": "Completion latency is implementation dependent; TB should wait until done_o pulses or watchdog expires."
+            }
+          },
+          {
+            "id": "TC003",
+            "operation": "MUL_BY_ZERO",
+            "stimulus": "clk toggling; rst_n=1; start_i=1 for one acceptance cycle; op_a_i=0x12345678; op_b_i=0x00000000",
+            "expected": "Multiply by zero completes with zero result.",
+            "checks": [
+              {
+                "signal": "busy_o",
+                "value": "1",
+                "condition": "after start_i is accepted and before completion"
+              },
+              {
+                "signal": "done_o",
+                "value": "1",
+                "condition": "on the completion cycle"
+              },
+              {
+                "signal": "result_o",
+                "value": "0x00000000",
+                "condition": "when done_o pulses"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "pulse",
+              "notes": "Wait until done_o pulses."
+            }
+          },
+          {
+            "id": "TC004",
+            "operation": "MUL_NEGATIVE_OPERAND_LOW32",
+            "stimulus": "clk toggling; rst_n=1; start_i=1 for one acceptance cycle; op_a_i=0xFFFFFFFF; op_b_i=0x00000002",
+            "expected": "Two's-complement bit multiply returns low 32 bits 0xFFFFFFFE.",
+            "checks": [
+              {
+                "signal": "busy_o",
+                "value": "1",
+                "condition": "after start_i is accepted and before completion"
+              },
+              {
+                "signal": "done_o",
+                "value": "1",
+                "condition": "on the completion cycle"
+              },
+              {
+                "signal": "result_o",
+                "value": "0xFFFFFFFE",
+                "condition": "when done_o pulses"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "pulse",
+              "notes": "Only low 32-bit product is checked."
+            }
+          },
+          {
+            "id": "TC005",
+            "operation": "MUL_OVERFLOW_LOW32",
+            "stimulus": "clk toggling; rst_n=1; start_i=1 for one acceptance cycle; op_a_i=0x80000000; op_b_i=0x00000002",
+            "expected": "Overflowed product returns low 32 bits 0x00000000.",
+            "checks": [
+              {
+                "signal": "busy_o",
+                "value": "1",
+                "condition": "after start_i is accepted and before completion"
+              },
+              {
+                "signal": "done_o",
+                "value": "1",
+                "condition": "on the completion cycle"
+              },
+              {
+                "signal": "result_o",
+                "value": "0x00000000",
+                "condition": "when done_o pulses"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "pulse",
+              "notes": "Only low 32-bit product is checked."
+            }
+          },
+          {
+            "id": "TC006",
+            "operation": "BUSY_HOLDS_UNTIL_DONE",
+            "stimulus": "clk toggling; rst_n=1; start_i=1 for one acceptance cycle; op_a_i=0x00000003; op_b_i=0x00000005",
+            "expected": "busy_o stays asserted before completion and final result is 0xF when done_o pulses.",
+            "checks": [
+              {
+                "signal": "busy_o",
+                "value": "1",
+                "condition": "for all intermediate cycles before done_o=1"
+              },
+              {
+                "signal": "done_o",
+                "value": "1",
+                "condition": "on the completion cycle"
+              },
+              {
+                "signal": "result_o",
+                "value": "0x0000000F",
+                "condition": "when done_o pulses"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "pulse",
+              "notes": "Checker must monitor persistence of busy_o until completion."
+            }
+          }
+        ]
+      },
+      {
+        "module": "regfile_16x32",
+        "tb_file": "tb_regfile_16x32.sv",
+        "testcases": [
+          {
+            "id": "TC001",
+            "operation": "READ_X0_ZERO",
+            "stimulus": "clk toggling; rst_n=1; raddr1_i=0; raddr2_i=0; we_i=0; waddr_i=0; wdata_i=0xFFFFFFFF",
+            "expected": "Both reads of x0 return zero regardless of write data on disabled write port.",
+            "checks": [
+              {
+                "signal": "rdata1_o",
+                "value": "0x00000000",
+                "condition": "after combinational settle"
+              },
+              {
+                "signal": "rdata2_o",
+                "value": "0x00000000",
+                "condition": "after combinational settle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Read-only x0 check."
+            }
+          },
+          {
+            "id": "TC002",
+            "operation": "WRITE_READ_X1",
+            "stimulus": "clk toggling; rst_n=1; raddr1_i=1; raddr2_i=0; we_i=1; waddr_i=1; wdata_i=0x12345678",
+            "expected": "Writing x1 stores 0x12345678 and subsequent read of x1 returns it; x0 remains zero.",
+            "checks": [
+              {
+                "signal": "rdata1_o",
+                "value": "0x12345678",
+                "condition": "after the write edge has occurred"
+              },
+              {
+                "signal": "rdata2_o",
+                "value": "0x00000000",
+                "condition": "after the write edge has occurred"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "level",
+              "notes": "Read should be sampled after the write clock edge."
+            }
+          },
+          {
+            "id": "TC003",
+            "operation": "WRITE_READ_X15",
+            "stimulus": "clk toggling; rst_n=1; raddr1_i=15; raddr2_i=1; we_i=1; waddr_i=15; wdata_i=0xA5A5A5A5",
+            "expected": "Writing x15 stores 0xA5A5A5A5 and x1 retains prior value 0x12345678.",
+            "checks": [
+              {
+                "signal": "rdata1_o",
+                "value": "0xA5A5A5A5",
+                "condition": "after the write edge has occurred"
+              },
+              {
+                "signal": "rdata2_o",
+                "value": "0x12345678",
+                "condition": "after the write edge has occurred"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "level",
+              "notes": "This testcase assumes the prior x1 write from the directed sequence has occurred."
+            }
+          },
+          {
+            "id": "TC004",
+            "operation": "WRITE_X0_IGNORED",
+            "stimulus": "clk toggling; rst_n=1; raddr1_i=0; raddr2_i=1; we_i=1; waddr_i=0; wdata_i=0xDEADBEEF",
+            "expected": "Write to x0 is ignored; x0 reads zero and x1 retains prior value 0x12345678.",
+            "checks": [
+              {
+                "signal": "rdata1_o",
+                "value": "0x00000000",
+                "condition": "after the write edge has occurred"
+              },
+              {
+                "signal": "rdata2_o",
+                "value": "0x12345678",
+                "condition": "after the write edge has occurred"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "level",
+              "notes": "x0 must remain hardwired to zero."
+            }
+          },
+          {
+            "id": "TC005",
+            "operation": "WRITE_DISABLE_NO_CHANGE",
+            "stimulus": "clk toggling; rst_n=1; raddr1_i=1; raddr2_i=15; we_i=0; waddr_i=2; wdata_i=0xCAFEBABE",
+            "expected": "Disabled write does not alter register contents; x1 and x15 retain prior values.",
+            "checks": [
+              {
+                "signal": "rdata1_o",
+                "value": "0x12345678",
+                "condition": "after the no-write cycle"
+              },
+              {
+                "signal": "rdata2_o",
+                "value": "0xA5A5A5A5",
+                "condition": "after the no-write cycle"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "level",
+              "notes": "Directed sequence relies on prior writes establishing x1 and x15."
+            }
+          }
+        ]
+      },
+      {
+        "module": "csr_trap_controller",
+        "tb_file": "tb_csr_trap_controller.sv",
+        "testcases": [
+          {
+            "id": "TC001",
+            "operation": "RESET_CSR_DEFAULTS",
+            "stimulus": "clk toggling; rst_n=0; csr_en_i=0; csr_we_i=0; csr_addr_i=0x300; csr_wdata_i=0x00000000; trap_req_i=0; trap_cause_i=0; trap_pc_i=0x00000000; ext_irq_i=0; mret_i=0",
+            "expected": "Reset clears redirect outputs and returns defined reset CSR data value for the addressed CSR.",
+            "checks": [
+              {
+                "signal": "trap_redirect_valid_o",
+                "value": "0",
+                "condition": "during active reset"
+              },
+              {
+                "signal": "mret_redirect_valid_o",
+                "value": "0",
+                "condition": "during active reset"
+              },
+              {
+                "signal": "csr_rdata_o",
+                "value": "0x00000000 or defined_reset_value",
+                "condition": "during active reset for the addressed CSR"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "negedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Checker may accept either zero or the design's documented reset CSR value exactly as allowed by the testcase wording."
+            }
+          },
+          {
+            "id": "TC002",
+            "operation": "WRITE_MTVEC",
+            "stimulus": "clk toggling; rst_n=1; csr_en_i=1; csr_we_i=1; csr_addr_i=0x305; csr_wdata_i=0x00000100; trap_req_i=0; trap_cause_i=0; trap_pc_i=0x00000000; ext_irq_i=0; mret_i=0",
+            "expected": "Write to mtvec stores 0x00000100 and readback reflects the written value.",
+            "checks": [
+              {
+                "signal": "csr_rdata_o",
+                "value": "0x00000100",
+                "condition": "after the mtvec write has been accepted"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "level",
+              "notes": "Readback is sampled after the write edge."
+            }
+          },
+          {
+            "id": "TC003",
+            "operation": "READ_MTVEC",
+            "stimulus": "clk toggling; rst_n=1; csr_en_i=1; csr_we_i=0; csr_addr_i=0x305; csr_wdata_i=0x00000000; trap_req_i=0; trap_cause_i=0; trap_pc_i=0x00000000; ext_irq_i=0; mret_i=0",
+            "expected": "Read of mtvec returns 0x00000100 previously written in the directed sequence.",
+            "checks": [
+              {
+                "signal": "csr_rdata_o",
+                "value": "0x00000100",
+                "condition": "during CSR read of mtvec"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "If reads are registered, the TB may sample on the next clock; the value must still match."
+            }
+          },
+          {
+            "id": "TC004",
+            "operation": "ILLEGAL_INSTR_TRAP_ENTRY",
+            "stimulus": "clk toggling; rst_n=1; csr_en_i=0; csr_we_i=0; csr_addr_i=0x000; csr_wdata_i=0x00000000; trap_req_i=1; trap_cause_i=2; trap_pc_i=0x00000040; ext_irq_i=0; mret_i=0",
+            "expected": "Synchronous illegal-instruction trap redirects to mtvec=0x100 and captures trap context.",
+            "checks": [
+              {
+                "signal": "trap_redirect_valid_o",
+                "value": "1",
+                "condition": "on accepted trap entry"
+              },
+              {
+                "signal": "trap_redirect_pc_o",
+                "value": "0x00000100",
+                "condition": "when trap_redirect_valid_o is asserted"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "pulse",
+              "notes": "Directed sequence should ensure mtvec was set to 0x100."
+            }
+          },
+          {
+            "id": "TC005",
+            "operation": "EXTERNAL_INTERRUPT_ENTRY",
+            "stimulus": "clk toggling; rst_n=1; csr_en_i=0; csr_we_i=0; csr_addr_i=0x000; csr_wdata_i=0x00000000; trap_req_i=0; trap_cause_i=0; trap_pc_i=0x00000080; ext_irq_i=1; mret_i=0",
+            "expected": "External interrupt redirects to mtvec=0x100.",
+            "checks": [
+              {
+                "signal": "trap_redirect_valid_o",
+                "value": "1",
+                "condition": "on accepted interrupt entry"
+              },
+              {
+                "signal": "trap_redirect_pc_o",
+                "value": "0x00000100",
+                "condition": "when trap_redirect_valid_o is asserted"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "pulse",
+              "notes": "Directed sequence should ensure mtvec was set to 0x100."
+            }
+          },
+          {
+            "id": "TC006",
+            "operation": "MRET_RETURN",
+            "stimulus": "clk toggling; rst_n=1; csr_en_i=0; csr_we_i=0; csr_addr_i=0x000; csr_wdata_i=0x00000000; trap_req_i=0; trap_cause_i=0; trap_pc_i=0x00000000; ext_irq_i=0; mret_i=1",
+            "expected": "MRET asserts return redirect to previously saved mepc 0x00000040.",
+            "checks": [
+              {
+                "signal": "mret_redirect_valid_o",
+                "value": "1",
+                "condition": "on accepted MRET"
+              },
+              {
+                "signal": "mret_redirect_pc_o",
+                "value": "0x00000040",
+                "condition": "when mret_redirect_valid_o is asserted"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "pulse",
+              "notes": "Directed sequence assumes prior trap captured mepc=0x40."
+            }
+          },
+          {
+            "id": "TC007",
+            "operation": "READ_MEPC_AFTER_TRAP",
+            "stimulus": "clk toggling; rst_n=1; csr_en_i=1; csr_we_i=0; csr_addr_i=0x341; csr_wdata_i=0x00000000; trap_req_i=0; trap_cause_i=0; trap_pc_i=0x00000000; ext_irq_i=0; mret_i=0",
+            "expected": "Read of mepc returns 0x00000040 captured by the prior trap entry.",
+            "checks": [
+              {
+                "signal": "csr_rdata_o",
+                "value": "0x00000040",
+                "condition": "during CSR read of mepc after trap"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Directed sequence depends on prior trap entry testcase or equivalent setup."
+            }
+          },
+          {
+            "id": "TC008",
+            "operation": "READ_MCAUSE_AFTER_TRAP",
+            "stimulus": "clk toggling; rst_n=1; csr_en_i=1; csr_we_i=0; csr_addr_i=0x342; csr_wdata_i=0x00000000; trap_req_i=0; trap_cause_i=0; trap_pc_i=0x00000000; ext_irq_i=0; mret_i=0",
+            "expected": "Read of mcause returns 0x00000002 captured by the prior illegal-instruction trap.",
+            "checks": [
+              {
+                "signal": "csr_rdata_o",
+                "value": "0x00000002",
+                "condition": "during CSR read of mcause after trap"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "combinational_after_settle",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Directed sequence depends on prior illegal trap setup."
+            }
+          }
+        ]
+      },
+      {
+        "module": "load_store_unit",
+        "tb_file": "tb_load_store_unit.sv",
+        "testcases": [
+          {
+            "id": "TC001",
+            "operation": "LW_ADDRESS_CALC",
+            "stimulus": "clk toggling; rst_n=1; req_i=1; we_i=0; size_i=2; unsigned_i=0; base_addr_i=0x00001000; offset_i=0x00000004; store_data_i=0x00000000; mem_ready_i=0; mem_rdata_i=0x00000000; trap_on_misaligned_i=1",
+            "expected": "Word load issues request to 0x1004 with full byte enable, stalls while waiting, and is aligned.",
+            "checks": [
+              {
+                "signal": "mem_req_o",
+                "value": "1",
+                "condition": "while request is active and mem_ready_i=0"
+              },
+              {
+                "signal": "mem_we_o",
+                "value": "0",
+                "condition": "for load requests"
+              },
+              {
+                "signal": "mem_addr_o",
+                "value": "0x00001004",
+                "condition": "for the active load request"
+              },
+              {
+                "signal": "mem_be_o",
+                "value": "0xF",
+                "condition": "for a word transfer"
+              },
+              {
+                "signal": "stall_o",
+                "value": "1",
+                "condition": "while waiting for memory completion"
+              },
+              {
+                "signal": "misaligned_o",
+                "value": "0",
+                "condition": "for aligned word load"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Request attributes should be stable during wait."
+            }
+          },
+          {
+            "id": "TC002",
+            "operation": "SW_ADDRESS_AND_DATA",
+            "stimulus": "clk toggling; rst_n=1; req_i=1; we_i=1; size_i=2; unsigned_i=0; base_addr_i=0x00002000; offset_i=0x00000008; store_data_i=0x12345678; mem_ready_i=0; mem_rdata_i=0x00000000; trap_on_misaligned_i=1",
+            "expected": "Word store issues request to 0x2008 with full byte enable, write data 0x12345678, stalls while waiting, and is aligned.",
+            "checks": [
+              {
+                "signal": "mem_req_o",
+                "value": "1",
+                "condition": "while request is active and mem_ready_i=0"
+              },
+              {
+                "signal": "mem_we_o",
+                "value": "1",
+                "condition": "for store requests"
+              },
+              {
+                "signal": "mem_addr_o",
+                "value": "0x00002008",
+                "condition": "for the active store request"
+              },
+              {
+                "signal": "mem_be_o",
+                "value": "0xF",
+                "condition": "for a word transfer"
+              },
+              {
+                "signal": "mem_wdata_o",
+                "value": "0x12345678",
+                "condition": "for the active store request"
+              },
+              {
+                "signal": "stall_o",
+                "value": "1",
+                "condition": "while waiting for memory completion"
+              },
+              {
+                "signal": "misaligned_o",
+                "value": "0",
+                "condition": "for aligned word store"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Store data formatting should be directly visible."
+            }
+          },
+          {
+            "id": "TC003",
+            "operation": "LB_SIGN_EXTEND",
+            "stimulus": "clk toggling; rst_n=1; req_i=1; we_i=0; size_i=0; unsigned_i=0; base_addr_i=0x00003000; offset_i=0x00000001; store_data_i=0x00000000; mem_ready_i=1; mem_rdata_i=0x0000AA00; trap_on_misaligned_i=1",
+            "expected": "Byte load from address+1 extracts 0xAA and sign-extends to 0xFFFFFFAA with done asserted.",
+            "checks": [
+              {
+                "signal": "load_data_o",
+                "value": "0xFFFFFFAA",
+                "condition": "when mem_ready_i completes the byte load"
+              },
+              {
+                "signal": "done_o",
+                "value": "1",
+                "condition": "on the completion cycle"
+              },
+              {
+                "signal": "misaligned_o",
+                "value": "0",
+                "condition": "byte loads are aligned at any address"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "pulse",
+              "notes": "Completion and returned data may occur in the same cycle as mem_ready_i."
+            }
+          },
+          {
+            "id": "TC004",
+            "operation": "LBU_ZERO_EXTEND",
+            "stimulus": "clk toggling; rst_n=1; req_i=1; we_i=0; size_i=0; unsigned_i=1; base_addr_i=0x00003000; offset_i=0x00000001; store_data_i=0x00000000; mem_ready_i=1; mem_rdata_i=0x0000AA00; trap_on_misaligned_i=1",
+            "expected": "Byte load unsigned from address+1 extracts 0xAA and zero-extends to 0x000000AA with done asserted.",
+            "checks": [
+              {
+                "signal": "load_data_o",
+                "value": "0x000000AA",
+                "condition": "when mem_ready_i completes the byte load"
+              },
+              {
+                "signal": "done_o",
+                "value": "1",
+                "condition": "on the completion cycle"
+              },
+              {
+                "signal": "misaligned_o",
+                "value": "0",
+                "condition": "byte loads are aligned at any address"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "pulse",
+              "notes": "Unsigned extraction path check."
+            }
+          },
+          {
+            "id": "TC005",
+            "operation": "LH_SIGN_EXTEND",
+            "stimulus": "clk toggling; rst_n=1; req_i=1; we_i=0; size_i=1; unsigned_i=0; base_addr_i=0x00004000; offset_i=0x00000002; store_data_i=0x00000000; mem_ready_i=1; mem_rdata_i=0x80010000; trap_on_misaligned_i=1",
+            "expected": "Halfword load from address+2 extracts 0x8001 and sign-extends to 0xFFFF8001 with done asserted.",
+            "checks": [
+              {
+                "signal": "load_data_o",
+                "value": "0xFFFF8001",
+                "condition": "when mem_ready_i completes the halfword load"
+              },
+              {
+                "signal": "done_o",
+                "value": "1",
+                "condition": "on the completion cycle"
+              },
+              {
+                "signal": "misaligned_o",
+                "value": "0",
+                "condition": "for aligned halfword access"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "pulse",
+              "notes": "Signed halfword extraction path check."
+            }
+          },
+          {
+            "id": "TC006",
+            "operation": "LHU_ZERO_EXTEND",
+            "stimulus": "clk toggling; rst_n=1; req_i=1; we_i=0; size_i=1; unsigned_i=1; base_addr_i=0x00004000; offset_i=0x00000002; store_data_i=0x00000000; mem_ready_i=1; mem_rdata_i=0x80010000; trap_on_misaligned_i=1",
+            "expected": "Halfword unsigned load from address+2 extracts 0x8001 and zero-extends to 0x00008001 with done asserted.",
+            "checks": [
+              {
+                "signal": "load_data_o",
+                "value": "0x00008001",
+                "condition": "when mem_ready_i completes the halfword load"
+              },
+              {
+                "signal": "done_o",
+                "value": "1",
+                "condition": "on the completion cycle"
+              },
+              {
+                "signal": "misaligned_o",
+                "value": "0",
+                "condition": "for aligned halfword access"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "pulse",
+              "notes": "Unsigned halfword extraction path check."
+            }
+          },
+          {
+            "id": "TC007",
+            "operation": "LOAD_WAIT_STATE",
+            "stimulus": "clk toggling; rst_n=1; req_i=1; we_i=0; size_i=2; unsigned_i=0; base_addr_i=0x00005000; offset_i=0x00000000; store_data_i=0x00000000; mem_ready_i=0; mem_rdata_i=0x00000000; trap_on_misaligned_i=1",
+            "expected": "Pending word load keeps bus request asserted, stalls, and does not complete.",
+            "checks": [
+              {
+                "signal": "mem_req_o",
+                "value": "1",
+                "condition": "while request is active and mem_ready_i=0"
+              },
+              {
+                "signal": "stall_o",
+                "value": "1",
+                "condition": "while waiting for memory completion"
+              },
+              {
+                "signal": "done_o",
+                "value": "0",
+                "condition": "before memory completion"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Outstanding load wait behavior check."
+            }
+          },
+          {
+            "id": "TC008",
+            "operation": "LOAD_COMPLETE",
+            "stimulus": "clk toggling; rst_n=1; req_i=1; we_i=0; size_i=2; unsigned_i=0; base_addr_i=0x00005000; offset_i=0x00000000; store_data_i=0x00000000; mem_ready_i=1; mem_rdata_i=0xDEADBEEF; trap_on_misaligned_i=1",
+            "expected": "Completed word load returns 0xDEADBEEF, asserts done, and releases stall.",
+            "checks": [
+              {
+                "signal": "load_data_o",
+                "value": "0xDEADBEEF",
+                "condition": "when mem_ready_i completes the word load"
+              },
+              {
+                "signal": "done_o",
+                "value": "1",
+                "condition": "on the completion cycle"
+              },
+              {
+                "signal": "stall_o",
+                "value": "0",
+                "condition": "after memory completion"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "pulse",
+              "notes": "Word load completion check."
+            }
+          },
+          {
+            "id": "TC009",
+            "operation": "MISALIGNED_WORD_TRAP_ENABLED",
+            "stimulus": "clk toggling; rst_n=1; req_i=1; we_i=0; size_i=2; unsigned_i=0; base_addr_i=0x00006000; offset_i=0x00000002; store_data_i=0x00000000; mem_ready_i=0; mem_rdata_i=0x00000000; trap_on_misaligned_i=1",
+            "expected": "Misaligned word access is trapped immediately: misaligned asserted, no bus request, and done asserted.",
+            "checks": [
+              {
+                "signal": "misaligned_o",
+                "value": "1",
+                "condition": "for the misaligned trapped request"
+              },
+              {
+                "signal": "mem_req_o",
+                "value": "0",
+                "condition": "when trap_on_misaligned_i=1 blocks the bus request"
+              },
+              {
+                "signal": "done_o",
+                "value": "1",
+                "condition": "immediate completion of trapped request"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "pulse",
+              "notes": "Immediate trap-style completion check."
+            }
+          },
+          {
+            "id": "TC010",
+            "operation": "MISALIGNED_WORD_NO_TRAP_POLICY",
+            "stimulus": "clk toggling; rst_n=1; req_i=1; we_i=0; size_i=2; unsigned_i=0; base_addr_i=0x00006000; offset_i=0x00000002; store_data_i=0x00000000; mem_ready_i=0; mem_rdata_i=0x00000000; trap_on_misaligned_i=0",
+            "expected": "Misaligned word access is allowed by policy: no misaligned flag, bus request asserted, and effective address 0x00006002 is driven.",
+            "checks": [
+              {
+                "signal": "misaligned_o",
+                "value": "0",
+                "condition": "when trap_on_misaligned_i=0"
+              },
+              {
+                "signal": "mem_req_o",
+                "value": "1",
+                "condition": "for the allowed misaligned access"
+              },
+              {
+                "signal": "mem_addr_o",
+                "value": "0x00006002",
+                "condition": "for the allowed misaligned access"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Policy override check."
+            }
+          }
+        ]
+      },
+      {
+        "module": "boot_rom_loader",
+        "tb_file": "tb_boot_rom_loader.sv",
+        "testcases": [
+          {
+            "id": "TC001",
+            "operation": "RESET_IDLE",
+            "stimulus": "clk toggling; rst_n=0; start_i=0; spi_ready_i=0; spi_rdata_i=0x00000000; iram_ready_i=0; validation_enable_i=0",
+            "expected": "Reset leaves boot loader idle with no SPI or IRAM activity and no terminal status.",
+            "checks": [
+              {
+                "signal": "spi_req_o",
+                "value": "0",
+                "condition": "during active reset"
+              },
+              {
+                "signal": "iram_we_o",
+                "value": "0",
+                "condition": "during active reset"
+              },
+              {
+                "signal": "done_o",
+                "value": "0",
+                "condition": "during active reset"
+              },
+              {
+                "signal": "fail_stop_o",
+                "value": "0",
+                "condition": "during active reset"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "negedge_plus_1",
+              "same_cycle_response_allowed": true,
+              "latency_cycles": 0,
+              "output_persistence": "level",
+              "notes": "Asynchronous reset behavior check."
+            }
+          },
+          {
+            "id": "TC002",
+            "operation": "START_HEADER_FETCH",
+            "stimulus": "clk toggling; rst_n=1; start_i=1; spi_ready_i=0; spi_rdata_i=0x00000000; iram_ready_i=0; validation_enable_i=1",
+            "expected": "Boot start issues first SPI header fetch from address 0 with no completion or fail-stop yet.",
+            "checks": [
+              {
+                "signal": "spi_req_o",
+                "value": "1",
+                "condition": "after start_i launches boot"
+              },
+              {
+                "signal": "spi_addr_o",
+                "value": "0x00000000",
+                "condition": "for the first header fetch"
+              },
+              {
+                "signal": "done_o",
+                "value": "0",
+                "condition": "before any successful completion"
+              },
+              {
+                "signal": "fail_stop_o",
+                "value": "0",
+                "condition": "during initial boot request"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Observe first boot request cycle after start."
+            }
+          },
+          {
+            "id": "TC003",
+            "operation": "VALID_HEADER_ACCEPT",
+            "stimulus": "clk toggling; rst_n=1; start_i=1; spi_ready_i=1; spi_rdata_i=0xB007CAFE; iram_ready_i=0; validation_enable_i=1",
+            "expected": "Valid boot header is accepted, SPI fetch continues, and fail-stop remains low.",
+            "checks": [
+              {
+                "signal": "spi_req_o",
+                "value": "1",
+                "condition": "after valid header word is accepted and boot continues"
+              },
+              {
+                "signal": "fail_stop_o",
+                "value": "0",
+                "condition": "after valid header acceptance"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "hold_until_next_request",
+              "notes": "Header acceptance advances the FSM to the next boot fetch."
+            }
+          },
+          {
+            "id": "TC004",
+            "operation": "PROGRAM_WORD_COPY",
+            "stimulus": "clk toggling; rst_n=1; start_i=1; spi_ready_i=1; spi_rdata_i=0x11223344; iram_ready_i=1; validation_enable_i=0",
+            "expected": "Program data word is written into IRAM with matching write data and no fail-stop.",
+            "checks": [
+              {
+                "signal": "iram_we_o",
+                "value": "1",
+                "condition": "when a program word is being copied and IRAM accepts it"
+              },
+              {
+                "signal": "iram_wdata_o",
+                "value": "0x11223344",
+                "condition": "when iram_we_o is asserted for this copy word"
+              },
+              {
+                "signal": "fail_stop_o",
+                "value": "0",
+                "condition": "during valid copy operation"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "pulse",
+              "notes": "IRAM write is sampled on the accepted copy cycle."
+            }
+          },
+          {
+            "id": "TC005",
+            "operation": "BOOT_SUCCESS",
+            "stimulus": "clk toggling; rst_n=1; start_i=1; spi_ready_i=1; spi_rdata_i=0x00000020; iram_ready_i=1; validation_enable_i=0",
+            "expected": "Boot completes successfully with boot PC 0x20 and no fail-stop.",
+            "checks": [
+              {
+                "signal": "done_o",
+                "value": "1",
+                "condition": "on successful boot completion"
+              },
+              {
+                "signal": "boot_pc_o",
+                "value": "0x00000020",
+                "condition": "when done_o indicates boot success"
+              },
+              {
+                "signal": "fail_stop_o",
+                "value": "0",
+                "condition": "on successful boot completion"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "pulse",
+              "notes": "done_o may pulse or remain asserted in a completed state; the sampled success cycle must match."
+            }
+          },
+          {
+            "id": "TC006",
+            "operation": "HEADER_MALFORMED_FAIL",
+            "stimulus": "clk toggling; rst_n=1; start_i=1; spi_ready_i=1; spi_rdata_i=0xFFFFFFFF; iram_ready_i=0; validation_enable_i=1",
+            "expected": "Malformed header causes terminal fail-stop, suppresses done, and stops SPI requests.",
+            "checks": [
+              {
+                "signal": "fail_stop_o",
+                "value": "1",
+                "condition": "after malformed header is accepted"
+              },
+              {
+                "signal": "done_o",
+                "value": "0",
+                "condition": "after malformed header failure"
+              },
+              {
+                "signal": "spi_req_o",
+                "value": "0",
+                "condition": "in fail-stop state after malformed header"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "level",
+              "notes": "fail_stop_o is terminal until reset."
+            }
+          },
+          {
+            "id": "TC007",
+            "operation": "SIZE_RANGE_VIOLATION_FAIL",
+            "stimulus": "clk toggling; rst_n=1; start_i=1; spi_ready_i=1; spi_rdata_i=0x00010000; iram_ready_i=0; validation_enable_i=1",
+            "expected": "Out-of-range program size causes terminal fail-stop and no done.",
+            "checks": [
+              {
+                "signal": "fail_stop_o",
+                "value": "1",
+                "condition": "after size/range violation is detected"
+              },
+              {
+                "signal": "done_o",
+                "value": "0",
+                "condition": "after size/range violation failure"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "level",
+              "notes": "fail_stop_o is terminal until reset."
+            }
+          },
+          {
+            "id": "TC008",
+            "operation": "SPI_TIMEOUT_OR_ERROR_FAIL",
+            "stimulus": "clk toggling; rst_n=1; start_i=1; spi_ready_i=0; spi_rdata_i=0x00000000; iram_ready_i=0; validation_enable_i=1",
+            "expected": "If SPI response timeout/error policy expires, terminal fail-stop asserts and done remains low.",
+            "checks": [
+              {
+                "signal": "fail_stop_o",
+                "value": "1",
+                "condition": "after the implementation-defined timeout/error window expires"
+              },
+              {
+                "signal": "done_o",
+                "value": "0",
+                "condition": "after timeout/error fail condition"
+              }
+            ],
+            "timing_contract": {
+              "sample_event": "posedge_plus_1",
+              "same_cycle_response_allowed": false,
+              "latency_cycles": 1,
+              "output_persistence": "level",
+              "notes": "TB must wait the design's timeout interval or a bounded watchdog and then sample fail-stop."
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

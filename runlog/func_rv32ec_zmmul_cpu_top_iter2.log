@@ -1,0 +1,2 @@
+slurmstepd: error: execve(): vcs: No such file or directory
+srun: error: bos-eda-node: task 0: Exited with exit code 2

@@ -1,0 +1,202 @@
+source_directory=/home/yellow/ntan/multiagent28/generated_rtl
+workspace_copy=/home/yellow/ltthang/work/eda-mcp-new/runs/202606201704_1781949867811_ltthang_vcs/workspace
+prelude=module avail && load best-match module for tool
+command=source /etc/profile >/dev/null 2>&1 || true
+module avail
+tool_module=$(module -t avail vcs 2>&1 | grep -E '^vcs/' | tail -n 1)
+if [ -z "$tool_module" ]; then
+  echo "ERROR: No module found for prefix vcs"
+  exit 2
+fi
+echo "selected_module=$tool_module"
+module load "$tool_module"
+module list
+srun -p ai_partition -w bos-eda-node vcs -full64 -sverilog -debug_access+all rv32ec_zmmul_core_pkg.sv alu32_branch_unit.sv boot_rom_loader.sv csr_trap_controller.sv decode_control_unit.sv execute_writeback_unit.sv fetch_unit.sv load_store_unit.sv multiplier_unit.sv regfile_16x32.sv rv32ec_zmmul_cpu_top.sv tb_rv32ec_zmmul_cpu_top.sv top_sim_rv32ec_zmmul_cpu_top.sv -R
+
+------------------------------------------------------------------------------------------------ /usr/share/modules/modulefiles ------------------------------------------------------------------------------------------------
+dot  module-git  module-info  modules  null  use.own  
+
+---------------------------------------------------------------------------------------------- /tools/modulefiles_custom/synopsys ----------------------------------------------------------------------------------------------
+fm/W-2024.09-SP3  lc/W-2024.09-SP3  prime/W-2024.09-SP3  spyglass/W-2024.09-SP1  syn/W-2024.09-SP3  vc_static/W-2024.09-SP1  vcs/W-2024.09-SP1  verdi/W-2024.09-SP1  
+selected_module=vcs/W-2024.09-SP1
+Currently Loaded Modulefiles:
+ 1) vcs/W-2024.09-SP1  
+========================================================================================================================
+ /OO   /OO  /OOOOOO  /OO      /OO /OO   /OO /OOOOOOOO
+| OO  | OO /OO__  OO| OOO    /OOO| OO  | OO|__  OO__/
+| OO  | OO| OO  \__/| OOOO  /OOOO| OO  | OO   | OO   
+| OOOOOOOO| OO      | OO OO/OO OO| OO  | OO   | OO   
+| OO__  OO| OO      | OO  OOO| OO| OO  | OO   | OO   
+| OO  | OO| OO    OO| OO\  O | OO| OO  | OO   | OO   
+| OO  | OO|  OOOOOO/| OO \/  | OO|  OOOOOO/   | OO   
+|__/  |__/ \______/ |__/     |__/ \______/    |__/   
+========================================================================================================================
+ /OOOOOOO   /OOOOOO  /OOOOOOOO /OO        /OOOOOO  /OOOOOOO            /OOOOOO   /OOOOOO   /OOOOOO  /OOOOOOO   /OOOOOO 
+| OO__  OO /OO__  OO| OO_____/| OO       /OO__  OO| OO__  OO          /OO__  OO /OOO_  OO /OO__  OO| OO__  OO /OO__  OO
+| OO  \ OO| OO  \ OO| OO      | OO      | OO  \ OO| OO  \ OO         |__/  \ OO| OOOO\ OO|__/  \ OO| OO  \ OO|__/  \ OO
+| OO  | OO| OO  | OO| OOOOO   | OO      | OOOOOOOO| OOOOOOO  /OOOOOO   /OOOOOO/| OO OO OO   /OOOOO/| OOOOOOO    /OOOOO/
+| OO  | OO| OO  | OO| OO__/   | OO      | OO__  OO| OO__  OO|______/  /OO____/ | OO\ OOOO  |___  OO| OO__  OO  |___  OO
+| OO  | OO| OO  | OO| OO      | OO      | OO  | OO| OO  \ OO         | OO      | OO \ OOO /OO  \ OO| OO  \ OO /OO  \ OO
+| OOOOOOO/|  OOOOOO/| OOOOOOOO| OOOOOOOO| OO  | OO| OOOOOOO/         | OOOOOOOO|  OOOOOO/|  OOOOOO/| OOOOOOO/|  OOOOOO/
+|_______/  \______/ |________/|________/|__/  |__/|_______/          |________/ \______/  \______/ |_______/  \______/ 
+========================================================================================================================
+
+
+Warning-[LINX_KRNL] Unsupported Linux kernel
+  Linux kernel '7.0.3-1.el8.elrepo.x86_64' is not supported.
+  Supported versions are
+   Linux_aarch64: 4.*, 5.*
+   Linux_x86: 3.10*, 4.*, 5.*, 6.*
+   Ubuntu: 3.0*, 3.1*, 4.4*, 4.1*, and 5.*
+   Suse32: 3.0*, 3.12*, 4.*, and 5.*
+
+                         Chronologic VCS (TM)
+       Version W-2024.09-SP1_Full64 -- Sat Jun 20 17:04:28 2026
+
+                    Copyright (c) 1991 - 2024 Synopsys, Inc.
+   This software and the associated documentation are proprietary to Synopsys,
+ Inc. This software may only be used in accordance with the terms and conditions
+ of a written license agreement with Synopsys, Inc. All other use, reproduction,
+   or distribution of this software is strictly prohibited.  Licensed Products
+     communicate with Synopsys servers for the purpose of providing software
+    updates, detecting software piracy and verifying that customers are using
+    Licensed Products in conformity with the applicable License Key for such
+  Licensed Products. Synopsys will use information gathered in connection with
+    this process to deliver software updates and pursue software pirates and
+                                   infringers.
+
+ Inclusivity & Diversity - Visit SolvNetPlus to read the "Synopsys Statement on
+            Inclusivity and Diversity" (Refer to article 000036315 at
+                        https://solvnetplus.synopsys.com)
+
+Parsing design file 'rv32ec_zmmul_core_pkg.sv'
+Parsing design file 'alu32_branch_unit.sv'
+Parsing design file 'boot_rom_loader.sv'
+Parsing design file 'csr_trap_controller.sv'
+
+Note-[SV-LCM-PPWI] Package previously wildcard imported
+csr_trap_controller.sv, 3
+$unit
+  Package 'rv32ec_zmmul_core_pkg' already wildcard imported. 
+  Ignoring rv32ec_zmmul_core_pkg::*
+  See the SystemVerilog LRM(1800-2005), section 19.2.1.
+
+Parsing design file 'decode_control_unit.sv'
+
+Note-[SV-LCM-PPWI] Package previously wildcard imported
+decode_control_unit.sv, 3
+$unit
+  Package 'rv32ec_zmmul_core_pkg' already wildcard imported. 
+  Ignoring rv32ec_zmmul_core_pkg::*
+  See the SystemVerilog LRM(1800-2005), section 19.2.1.
+
+Parsing design file 'execute_writeback_unit.sv'
+
+Note-[SV-LCM-PPWI] Package previously wildcard imported
+execute_writeback_unit.sv, 3
+$unit
+  Package 'rv32ec_zmmul_core_pkg' already wildcard imported. 
+  Ignoring rv32ec_zmmul_core_pkg::*
+  See the SystemVerilog LRM(1800-2005), section 19.2.1.
+
+Parsing design file 'fetch_unit.sv'
+
+Note-[SV-LCM-PPWI] Package previously wildcard imported
+fetch_unit.sv, 3
+$unit
+  Package 'rv32ec_zmmul_core_pkg' already wildcard imported. 
+  Ignoring rv32ec_zmmul_core_pkg::*
+  See the SystemVerilog LRM(1800-2005), section 19.2.1.
+
+Parsing design file 'load_store_unit.sv'
+
+Note-[SV-LCM-PPWI] Package previously wildcard imported
+load_store_unit.sv, 3
+$unit
+  Package 'rv32ec_zmmul_core_pkg' already wildcard imported. 
+  Ignoring rv32ec_zmmul_core_pkg::*
+  See the SystemVerilog LRM(1800-2005), section 19.2.1.
+
+Parsing design file 'multiplier_unit.sv'
+Parsing design file 'regfile_16x32.sv'
+
+Note-[SV-LCM-PPWI] Package previously wildcard imported
+regfile_16x32.sv, 3
+$unit
+  Package 'rv32ec_zmmul_core_pkg' already wildcard imported. 
+  Ignoring rv32ec_zmmul_core_pkg::*
+  See the SystemVerilog LRM(1800-2005), section 19.2.1.
+
+Parsing design file 'rv32ec_zmmul_cpu_top.sv'
+
+Note-[SV-LCM-PPWI] Package previously wildcard imported
+rv32ec_zmmul_cpu_top.sv, 3
+$unit
+  Package 'rv32ec_zmmul_core_pkg' already wildcard imported. 
+  Ignoring rv32ec_zmmul_core_pkg::*
+  See the SystemVerilog LRM(1800-2005), section 19.2.1.
+
+Parsing design file 'tb_rv32ec_zmmul_cpu_top.sv'
+Parsing design file 'top_sim_rv32ec_zmmul_cpu_top.sv'
+
+Note-[SV-LCM-PPWI] Package previously wildcard imported
+top_sim_rv32ec_zmmul_cpu_top.sv, 3
+$unit
+  Package 'rv32ec_zmmul_core_pkg' already wildcard imported. 
+  Ignoring rv32ec_zmmul_core_pkg::*
+  See the SystemVerilog LRM(1800-2005), section 19.2.1.
+
+Top Level Modules:
+       top_sim_rv32ec_zmmul_cpu_top
+TimeScale is 1 ns / 1 ps
+Starting vcs inline pass...
+7 modules and 0 UDP read.
+recompiling package rv32ec_zmmul_core_pkg
+recompiling module alu32_branch_unit
+recompiling module csr_trap_controller
+recompiling module execute_writeback_unit
+recompiling module regfile_16x32
+recompiling module tb_rv32ec_zmmul_cpu_top
+recompiling module top_sim_rv32ec_zmmul_cpu_top
+All of 7 modules done
+rm -f _cuarc*.so _csrc*.so pre_vcsobj_*.so share_vcsobj_*.so
+if [ -x ../simv ]; then chmod a-x ../simv; fi
+g++  -o ../simv      -rdynamic  -Wl,-rpath='$ORIGIN'/simv.daidir -Wl,-rpath=./simv.daidir -Wl,-rpath=/home/yellow/ltthang/tools/eda/synopsys/vcs/W-2024.09-SP1/linux64/lib -L/home/yellow/ltthang/tools/eda/synopsys/vcs/W-2024.09-SP1/linux64/lib  -Wl,-rpath-link=./   objs/amcQw_d.o   _30901_archive_1.so   SIM_l.o       rmapats_mop.o rmapats.o rmar.o rmar_nd.o  rmar_llvm_0_1.o rmar_llvm_0_0.o            -lnuma -lvirsim -lerrorinf -lsnpsmalloc -lvfs    -lvcsnew -lsimprofile -luclinative /home/yellow/ltthang/tools/eda/synopsys/vcs/W-2024.09-SP1/linux64/lib/vcs_tls.o   -Wl,-whole-archive  -lvcsucli    -Wl,-no-whole-archive          /home/yellow/ltthang/tools/eda/synopsys/vcs/W-2024.09-SP1/linux64/lib/vcs_save_restore_new.o -ldl  -lc -lm -lpthread -ldl 
+../simv up to date
+Info: [VCS_SAVE_RESTORE_INFO] ASLR (Address Space Layout Randomization) is detected on the machine. To enable $save functionality, ASLR will be switched off and simv re-executed.
+Please use '-no_save' simv switch to avoid re-execution or '-suppress=ASLR_DETECTED_INFO' to suppress this message.
+Chronologic VCS simulator copyright 1991-2024
+Contains Synopsys proprietary information.
+Compiler version W-2024.09-SP1_Full64; Runtime version W-2024.09-SP1_Full64;  Jun 20 17:04 2026
+Running TC001_RESET_FETCH
+[TESTCASE_RESULT] PASS: TC001_RESET_FETCH
+Running TC002_SPI_BOOT_START
+[TESTCASE_RESULT] PASS: TC002_SPI_BOOT_START
+Running TC003_SPI_BOOT_SUCCESS
+[TESTCASE_RESULT] PASS: TC003_SPI_BOOT_SUCCESS
+Running TC004_SPI_BOOT_FAILSTOP
+[TESTCASE_RESULT] FAIL: TC004_SPI_BOOT_FAILSTOP.fail_stop | got=00000000 expected=00000001 | cycle=17 time=166000
+Running TC005_LOAD_HANDSHAKE
+[TESTCASE_RESULT] PASS: TC005_LOAD_HANDSHAKE
+Running TC006_STORE_HANDSHAKE
+[TESTCASE_RESULT] PASS: TC006_STORE_HANDSHAKE
+Running TC007_BRANCH_REDIRECT
+[TESTCASE_RESULT] FAIL: TC007_BRANCH_REDIRECT.instr_addr | got=00000002 expected=00000000 | cycle=33 time=326000
+Running TC008_ILLEGAL_DIV_TRAP
+[TESTCASE_RESULT] PASS: TC008_ILLEGAL_DIV_TRAP
+Running TC009_INTERRUPT_ENTRY
+[TESTCASE_RESULT] PASS: TC009_INTERRUPT_ENTRY
+Running TC010_MEMORY_WAIT_STALL
+[TESTCASE_RESULT] PASS: TC010_MEMORY_WAIT_STALL
+Running TC011_MUL_NO_TRAP
+[TESTCASE_RESULT] PASS: TC011_MUL_NO_TRAP
+Running TC012_MRET_RETURN
+[TESTCASE_RESULT] FAIL: TC012_MRET_RETURN.instr_addr | got=00000006 expected=00000000 | cycle=62 time=616000
+[TEST_SUMMARY] PASS=9 FAIL=3
+$finish called from file "tb_rv32ec_zmmul_cpu_top.sv", line 404.
+$finish at simulation time               616000
+           V C S   S i m u l a t i o n   R e p o r t 
+Time: 616000 ps
+CPU Time:      0.200 seconds;       Data structure size:   0.0Mb
+Sat Jun 20 17:04:32 2026
+CPU time: .462 seconds to compile + .271 seconds to elab + .164 seconds to link + .221 seconds in simulation
